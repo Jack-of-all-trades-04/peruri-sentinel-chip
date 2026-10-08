@@ -1,0 +1,8 @@
+# Build and simulation outputs
+*.vcd
+runs/
+sim_build/
+__pycache__/
+*.pyc
+*.bak
+.DS_Store
