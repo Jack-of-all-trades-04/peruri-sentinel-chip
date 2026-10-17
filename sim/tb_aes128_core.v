@@ -2,6 +2,15 @@
 // Vectors: FIPS-197 Appendix C.1, FIPS-197 Appendix B, NIST SP 800-38A F.1.1 block 1.
 `timescale 1ns/1ps
 module tb_aes128_core;
+
+    // Waveform: sim_build/tb_aes128_core.vcd (open with GTKWave or Surfer).
+    // Compile with -DNO_DUMP to skip it.
+`ifndef NO_DUMP
+    initial begin
+        $dumpfile("sim_build/tb_aes128_core.vcd");
+        $dumpvars(0, tb_aes128_core);
+    end
+`endif
     reg clk = 0;
     always #5 clk = ~clk;
 

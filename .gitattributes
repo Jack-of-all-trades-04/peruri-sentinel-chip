@@ -1,0 +1,7 @@
+# Keep LF in the repo so bash scripts and Verilog work on Windows, Linux and the LibreLane docker.
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.sof binary
+*.vcd binary

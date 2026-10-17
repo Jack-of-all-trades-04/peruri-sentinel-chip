@@ -11,3 +11,9 @@ Each testbench is self-checking and prints one `PASS <name>` or `FAIL <name>` li
 | `tb_de10_nano_top` | full board-level demo with buttons and switches: clean operations release the FIPS-197 C.1 ciphertext; SW0 = 0 + KEY1 releases a faulty ciphertext; SW0 = 1 + KEY1 blocks every faulty ciphertext and moves the counter; the 4th attack zeroizes the key and locks the chip; KEY0 does not undo lockdown; SW3 + KEY0 unlocks for rehearsal |
 
 Limits of Tier 1 simulation: the alarm comes from the demo harness, not from a physical sensor. The TDL carry chain and ring oscillators are added in Tier 2 and must be confirmed on the board, because RTL simulation does not model their delays.
+
+## Waveforms
+
+Each testbench writes `sim_build/<testbench>.vcd` when it runs. Open it with GTKWave (`gtkwave sim_build/tb_de10_nano_top.vcd`) or Surfer.
+`sim_build/` is git-ignored, so the waves are always regenerated from the current RTL. Add `-DNO_DUMP` to the iverilog command to skip them.
+For the pitch, the most useful file is `tb_de10_nano_top.vcd`: it shows the clean run, the blocked faulty ciphertext, the counter climbing and the final lockdown.

@@ -2,6 +2,15 @@
 // Drives the board buttons and switches exactly as in the live demo.
 `timescale 1ns/1ps
 module tb_de10_nano_top;
+
+    // Waveform: sim_build/tb_de10_nano_top.vcd (open with GTKWave or Surfer).
+    // Compile with -DNO_DUMP to skip it.
+`ifndef NO_DUMP
+    initial begin
+        $dumpfile("sim_build/tb_de10_nano_top.vcd");
+        $dumpvars(0, tb_de10_nano_top);
+    end
+`endif
     reg clk = 0;
     always #10 clk = ~clk;   // 50 MHz
 

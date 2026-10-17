@@ -5,6 +5,15 @@
 // suppresses everything.
 `timescale 1ns/1ps
 module tb_output_release_gate;
+
+    // Waveform: sim_build/tb_output_release_gate.vcd (open with GTKWave or Surfer).
+    // Compile with -DNO_DUMP to skip it.
+`ifndef NO_DUMP
+    initial begin
+        $dumpfile("sim_build/tb_output_release_gate.vcd");
+        $dumpvars(0, tb_output_release_gate);
+    end
+`endif
     reg clk = 0;
     always #5 clk = ~clk;
 

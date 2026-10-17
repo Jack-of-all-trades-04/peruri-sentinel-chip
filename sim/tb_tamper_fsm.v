@@ -2,6 +2,15 @@
 // master_key_vault.
 `timescale 1ns/1ps
 module tb_tamper_fsm;
+
+    // Waveform: sim_build/tb_tamper_fsm.vcd (open with GTKWave or Surfer).
+    // Compile with -DNO_DUMP to skip it.
+`ifndef NO_DUMP
+    initial begin
+        $dumpfile("sim_build/tb_tamper_fsm.vcd");
+        $dumpvars(0, tb_tamper_fsm);
+    end
+`endif
     reg clk = 0;
     always #5 clk = ~clk;
 
