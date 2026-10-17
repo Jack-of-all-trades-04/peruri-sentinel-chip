@@ -1,0 +1,240 @@
+// de10_nano_top_t2: Tier 2 demo top for Terasic DE10-Nano (5CSEBA6U23I7).
+// Two clock domains from a PLL, real TDL and RO sensors, no HPS.
+//
+// Clocks (sys_pll is generated in the Quartus IP Catalog, see
+// quartus/tier2/PLL_SETUP.md):
+//   outclk_0  CLK_sys A       e.g. 80 MHz (target; Tier 1 Fmax is 93,49 MHz)
+//   outclk_1  CLK_sentinel    e.g. 50 MHz
+//   outclk_2  CLK_sys B       same frequency as outclk_0, phase PHI, T/2 < PHI < T
+// glitch_injector builds CLK_sys from A and B. All CLK_sys logic (AES, TDL,
+// gate) runs on that output, so an injected short cycle hits the cipher and
+// the TDL at the same time.
+//
+// Controls
+//   SW0  Sentinel enable (0 = OFF)
+//   SW1  attack mode for KEY1:
+//          0 = emulated byte fault at round 9 + harness alarm (Tier 1 path)
+//          1 = physical clock glitch near round GLITCH_ROUND, no harness
+//              alarm: only the TDL can catch it
+//   SW2  calibration/debug view: LEDs show TDL status, and alarms are not
+//        counted by the tamper FSM (gate still blocks). Demo builds only.
+//   SW3  with KEY0: demo-only debug unlock of LOCKDOWN
+//   KEY0 user reset (also restarts TDL calibration and RO baselines)
+//   KEY1 attack
+// LEDs, SW2 = 0 (same meaning as Tier 1)
+//   LED[2:0] tamper counter  LED3 heartbeat  LED4 last ciphertext correct
+//   LED5 release blocked     LED6 alarm seen  LED7 LOCKDOWN, key zero
+// LEDs, SW2 = 1
+//   LED7 TDL armed  LED6 TDL calibration failed  LED[5:0] calibrated TDL
+//   minimum depth (rising edge), saturates at 63
+module de10_nano_top_t2 #(
+    parameter integer DEB_CYCLES     = 800000,     // 10 ms at 80 MHz
+    parameter integer STRETCH_CYCLES = 40000000,   // 0.5 s at 80 MHz
+    parameter integer OP_PERIOD      = 8000000,    // one clean op every 0.1 s
+    parameter integer HB_BIT         = 25,         // ~1,2 Hz at 80 MHz
+    parameter integer N              = 4,
+    parameter integer H              = 4,
+    parameter integer DEMO_UNLOCK    = 1,
+    parameter integer GLITCH_ROUND   = 6,      // arm here; glitch lands ~3 rounds later
+    parameter integer GLITCH_ENABLE  = 1,
+    parameter integer TDL_L          = 64,
+    parameter integer TDL_COARSE     = 24,
+    parameter integer TDL_K          = 4,
+    parameter integer TDL_SETTLE     = 1024,
+    parameter integer TDL_WIN        = 4096,
+    parameter integer RO_WINDOW      = 256,
+    parameter integer P2SE_DTH       = 8,
+    parameter integer DETECTOR_SEL   = 0,
+    parameter integer FAST_HOLD      = 16,
+    parameter integer SLOW_HOLD      = 1024
+) (
+    input  wire       FPGA_CLK1_50,
+    input  wire [1:0] KEY,
+    input  wire [3:0] SW,
+    output wire [7:0] LED
+);
+    localparam [127:0] DEMO_KEY = 128'h000102030405060708090a0b0c0d0e0f;
+    localparam [127:0] DEMO_PT  = 128'h00112233445566778899aabbccddeeff;
+    localparam [127:0] EXP_CT   = 128'h69c4e0d86a7b0430d8cdb78070b4c55a;
+
+    // ---------------- clocks and resets ----------------
+    reg [3:0] por_cnt = 4'd0;      // power-up value 0 (FPGA configuration)
+    always @(posedge FPGA_CLK1_50)
+        if (!por_cnt[3]) por_cnt <= por_cnt + 4'd1;
+
+    wire clk_a, clk_b, clk_sen, pll_locked;
+    sys_pll u_pll (
+        .refclk(FPGA_CLK1_50), .rst(~por_cnt[3]),
+        .outclk_0(clk_a), .outclk_1(clk_sen), .outclk_2(clk_b),
+        .locked(pll_locked)
+    );
+
+    wire arst_n = por_cnt[3] & pll_locked;
+    wire glitch_arm;
+    wire glitch_en;
+    wire clk_sys;
+    glitch_injector #(.ENABLE(GLITCH_ENABLE)) u_glitch (
+        .clk_a(clk_a), .clk_b(clk_b), .rst_n(arst_n), .arm(glitch_arm),
+        .clk_out(clk_sys), .en(glitch_en)
+    );
+
+    wire por_sys_n, por_sen_n;
+    reset_sync u_rs_sys (.clk(clk_sys), .arst_n(arst_n), .rst_n(por_sys_n));
+    reset_sync u_rs_sen (.clk(clk_sen), .arst_n(arst_n), .rst_n(por_sen_n));
+
+    // ---------------- board inputs (CLK_sys) ----------------
+    wire key0_s, key1_s;
+    wire [3:0] sw_s;
+    sync_2ff #(.RESET_VAL(1'b1)) u_sk0 (.clk(clk_sys), .rst_n(por_sys_n), .d(KEY[0]), .q(key0_s));
+    sync_2ff #(.RESET_VAL(1'b1)) u_sk1 (.clk(clk_sys), .rst_n(por_sys_n), .d(KEY[1]), .q(key1_s));
+    sync_2ff u_ss0 (.clk(clk_sys), .rst_n(por_sys_n), .d(SW[0]), .q(sw_s[0]));
+    sync_2ff u_ss1 (.clk(clk_sys), .rst_n(por_sys_n), .d(SW[1]), .q(sw_s[1]));
+    sync_2ff u_ss2 (.clk(clk_sys), .rst_n(por_sys_n), .d(SW[2]), .q(sw_s[2]));
+    sync_2ff u_ss3 (.clk(clk_sys), .rst_n(por_sys_n), .d(SW[3]), .q(sw_s[3]));
+
+    wire key0_n, key1_n;
+    debounce #(.CYCLES(DEB_CYCLES), .INIT(1'b1)) u_db0 (.clk(clk_sys), .rst_n(por_sys_n), .d(key0_s), .q(key0_n));
+    debounce #(.CYCLES(DEB_CYCLES), .INIT(1'b1)) u_db1 (.clk(clk_sys), .rst_n(por_sys_n), .d(key1_s), .q(key1_n));
+
+    wire rst_sys_n    = por_sys_n & key0_n;
+    wire sentinel_en  = sw_s[0];
+    wire attack_mode  = sw_s[1];
+    wire debug_view   = sw_s[2];
+    wire debug_unlock = sw_s[3] & ~key0_n;
+
+    // ---------------- control signals into CLK_sentinel ----------------
+    wire en_sen, unlock_sen, mask_sen, key0_sen;
+    sync_2ff u_c0 (.clk(clk_sen), .rst_n(por_sen_n), .d(sentinel_en),  .q(en_sen));
+    sync_2ff u_c1 (.clk(clk_sen), .rst_n(por_sen_n), .d(debug_unlock), .q(unlock_sen));
+    sync_2ff u_c2 (.clk(clk_sen), .rst_n(por_sen_n), .d(debug_view),   .q(mask_sen));
+    sync_2ff #(.RESET_VAL(1'b1)) u_c3 (.clk(clk_sen), .rst_n(por_sen_n), .d(key0_n), .q(key0_sen));
+    wire rst_sen_n = por_sen_n & key0_sen;
+
+    // ---------------- demo harness: operation scheduler ----------------
+    reg key1_d;
+    always @(posedge clk_sys or negedge por_sys_n)
+        if (!por_sys_n) key1_d <= 1'b1;
+        else            key1_d <= key1_n;
+    wire attack_press = key1_d & ~key1_n;
+
+    wire         core_busy, lockdown_sys;
+    wire [3:0]   round_idx;
+    wire [127:0] ct_out;
+    wire         ct_valid, gate_blocked, key_is_zero, alarm_sys;
+
+    localparam integer TW = $clog2(OP_PERIOD + 1);
+    reg [TW-1:0] op_timer;
+    reg          attack_pending, pending_mode;
+    reg          cur_fault, cur_glitch;
+    reg          op_req;
+
+    always @(posedge clk_sys or negedge rst_sys_n) begin
+        if (!rst_sys_n) begin
+            op_timer       <= {TW{1'b0}};
+            attack_pending <= 1'b0;
+            pending_mode   <= 1'b0;
+            cur_fault      <= 1'b0;
+            cur_glitch     <= 1'b0;
+            op_req         <= 1'b0;
+        end else begin
+            op_req <= 1'b0;
+            if (attack_press) begin
+                attack_pending <= 1'b1;
+                pending_mode   <= attack_mode;
+            end
+            if (op_timer >= OP_PERIOD - 1) begin
+                if (!core_busy && !lockdown_sys) begin
+                    op_req         <= 1'b1;
+                    cur_fault      <= attack_pending & ~pending_mode;
+                    cur_glitch     <= attack_pending &  pending_mode;
+                    attack_pending <= 1'b0;
+                    op_timer       <= {TW{1'b0}};
+                end
+            end else begin
+                op_timer <= op_timer + 1'b1;
+            end
+        end
+    end
+
+    // Tier 1 path: emulated byte fault + harness alarm in the same round
+    wire [3:0] f_round = 4'd9;
+    wire [3:0] f_byte  = 4'd0;
+    wire [7:0] f_mask  = 8'h01;
+    wire harness_alarm = cur_fault & core_busy & (round_idx == f_round);
+
+    // physical glitch path: hold `arm` for 4 cycles from round GLITCH_ROUND
+    reg [2:0] arm_cnt;
+    always @(posedge clk_sys or negedge rst_sys_n) begin
+        if (!rst_sys_n) arm_cnt <= 3'd0;
+        else if (cur_glitch && core_busy && round_idx == GLITCH_ROUND && arm_cnt == 3'd0)
+            arm_cnt <= 3'd4;
+        else if (arm_cnt != 3'd0)
+            arm_cnt <= arm_cnt - 3'd1;
+    end
+    assign glitch_arm = (arm_cnt != 3'd0);
+
+    // ---------------- Sentinel core ----------------
+    wire [3:0] cnt_sys;
+    wire       tdl_alert, tdl_armed, tdl_cal_bad;
+    wire [6:0] tdl_depth, tdl_min_r;
+    wire [3:0] cnt_sen;
+    wire       lock_sen, lif_alarm, ewma_alarm, fixed_alarm;
+    wire [11:0] spike_bus;
+
+    peruri_sentinel_core_t2 #(
+        .H(H), .N(N), .DEMO_UNLOCK(DEMO_UNLOCK), .DPA_ENABLE(1), .DEMO_KEY(DEMO_KEY),
+        .TDL_L(TDL_L), .TDL_COARSE(TDL_COARSE), .TDL_K(TDL_K),
+        .TDL_SETTLE(TDL_SETTLE), .TDL_WIN(TDL_WIN),
+        .RO_WINDOW(RO_WINDOW), .P2SE_DTH(P2SE_DTH), .DETECTOR_SEL(DETECTOR_SEL),
+        .FAST_HOLD(FAST_HOLD), .SLOW_HOLD(SLOW_HOLD)
+    ) u_core (
+        .clk_sys(clk_sys), .rst_sys_n(rst_sys_n), .sentinel_en_sys(sentinel_en),
+        .op_req(op_req), .pt(DEMO_PT),
+        .fault_en(cur_fault), .fault_round(f_round), .fault_byte(f_byte), .fault_mask(f_mask),
+        .harness_alarm(harness_alarm),
+        .ct_out(ct_out), .ct_valid(ct_valid), .gate_blocked(gate_blocked),
+        .busy(core_busy), .round_idx(round_idx), .key_is_zero(key_is_zero),
+        .lockdown_sys(lockdown_sys), .tamper_counter_sys(cnt_sys), .alarm_sys(alarm_sys),
+        .tdl_alert(tdl_alert), .tdl_armed(tdl_armed), .tdl_cal_bad(tdl_cal_bad),
+        .tdl_depth(tdl_depth), .tdl_min_r(tdl_min_r),
+        .clk_sen(clk_sen), .rst_sen_n(rst_sen_n), .por_sen_n(por_sen_n),
+        .sentinel_en_sen(en_sen), .debug_unlock_sen(unlock_sen), .fsm_mask_sen(mask_sen),
+        .ro_en(1'b1),
+        .tamper_counter(cnt_sen), .lockdown(lock_sen),
+        .lif_alarm(lif_alarm), .ewma_alarm(ewma_alarm), .fixed_alarm(fixed_alarm),
+        .spike_bus(spike_bus)
+    );
+
+    // ---------------- LEDs ----------------
+    wire released_ok  = ct_valid & (ct_out == EXP_CT);
+    wire released_bad = ct_valid & (ct_out != EXP_CT);
+
+    reg ok_latched;
+    always @(posedge clk_sys or negedge rst_sys_n)
+        if (!rst_sys_n)        ok_latched <= 1'b0;
+        else if (released_ok)  ok_latched <= 1'b1;
+        else if (released_bad) ok_latched <= 1'b0;
+
+    wire bad_led, blk_led, alm_led;
+    pulse_stretch #(.CYCLES(STRETCH_CYCLES)) u_ps_bad (.clk(clk_sys), .rst_n(por_sys_n), .p(released_bad), .q(bad_led));
+    pulse_stretch #(.CYCLES(STRETCH_CYCLES)) u_ps_blk (.clk(clk_sys), .rst_n(por_sys_n), .p(gate_blocked), .q(blk_led));
+    pulse_stretch #(.CYCLES(STRETCH_CYCLES)) u_ps_alm (.clk(clk_sys), .rst_n(por_sys_n), .p(alarm_sys),    .q(alm_led));
+
+    reg [HB_BIT:0] hb;
+    always @(posedge clk_sys or negedge por_sys_n)
+        if (!por_sys_n) hb <= 0;
+        else            hb <= hb + 1'b1;
+
+    wire [7:0] led_normal = {
+        lockdown_sys & key_is_zero,
+        alm_led,
+        blk_led,
+        ok_latched & ~bad_led & ~lockdown_sys,
+        hb[HB_BIT],
+        (cnt_sys > 4'd7) ? 3'd7 : cnt_sys[2:0]
+    };
+    wire [5:0] depth_led = (tdl_min_r > 7'd63) ? 6'd63 : tdl_min_r[5:0];
+    wire [7:0] led_debug = {tdl_armed, tdl_cal_bad, depth_led};
+
+    assign LED = debug_view ? led_debug : led_normal;
+endmodule
