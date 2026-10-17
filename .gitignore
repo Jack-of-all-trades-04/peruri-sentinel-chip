@@ -1,8 +1,28 @@
 # Build and simulation outputs
 *.vcd
+*.vvp
 runs/
 sim_build/
 __pycache__/
 *.pyc
 *.bak
 .DS_Store
+
+# Quartus outputs
+quartus/db/
+quartus/incremental_db/
+quartus/output_files/
+quartus/greybox_tmp/
+quartus/qdb/
+quartus/tmp-clearbox/
+quartus/.qsys_edit/
+quartus/*.qws
+quartus/*.rpt
+quartus/*.summary
+quartus/*.smsg
+quartus/*.done
+quartus/*.jdi
+quartus/*.pin
+quartus/*.sld
+quartus/c5_pin_model_dump.txt
+sim_build_syn_*.txt

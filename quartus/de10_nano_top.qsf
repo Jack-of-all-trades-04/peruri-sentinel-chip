@@ -1,0 +1,52 @@
+# PERURI-SENTINEL Tier 1, Terasic DE10-Nano (Cyclone V SE 5CSEBA6U23I7)
+# Pure FPGA fabric, 50 MHz board clock, no HPS, no PLL.
+
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name DEVICE 5CSEBA6U23I7
+set_global_assignment -name TOP_LEVEL_ENTITY de10_nano_top
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 256
+set_global_assignment -name MIN_CORE_JUNCTION_TEMP "-40"
+set_global_assignment -name MAX_CORE_JUNCTION_TEMP 100
+set_global_assignment -name DEVICE_FILTER_PACKAGE UFBGA
+set_global_assignment -name DEVICE_FILTER_PIN_COUNT 672
+set_global_assignment -name VERILOG_INPUT_VERSION SYSTEMVERILOG_2005
+
+# ---------------- sources ----------------
+set_global_assignment -name VERILOG_FILE ../rtl/aes_sbox.v
+set_global_assignment -name VERILOG_FILE ../rtl/aes128_core.v
+set_global_assignment -name VERILOG_FILE ../rtl/master_key_vault.v
+set_global_assignment -name VERILOG_FILE ../rtl/output_release_gate.v
+set_global_assignment -name VERILOG_FILE ../rtl/graduated_tamper_fsm.v
+set_global_assignment -name VERILOG_FILE ../rtl/tripwire_zeroize.v
+set_global_assignment -name VERILOG_FILE ../rtl/dpa_hiding_lfsr.v
+set_global_assignment -name VERILOG_FILE ../rtl/sync_2ff.v
+set_global_assignment -name VERILOG_FILE ../rtl/debounce.v
+set_global_assignment -name VERILOG_FILE ../rtl/pulse_stretch.v
+set_global_assignment -name VERILOG_FILE ../rtl/peruri_sentinel_core.v
+set_global_assignment -name VERILOG_FILE ../rtl/de10_nano_top.v
+set_global_assignment -name SDC_FILE de10_nano_top.sdc
+
+# ---------------- pins ----------------
+# VERIFY against the Terasic DE10-Nano User Manual (pin tables for clock,
+# KEY, SW, LED) before the first programming.
+set_location_assignment PIN_V11  -to FPGA_CLK1_50
+set_location_assignment PIN_AH17 -to KEY[0]
+set_location_assignment PIN_AH16 -to KEY[1]
+set_location_assignment PIN_Y24  -to SW[0]
+set_location_assignment PIN_W24  -to SW[1]
+set_location_assignment PIN_W21  -to SW[2]
+set_location_assignment PIN_W20  -to SW[3]
+set_location_assignment PIN_W15  -to LED[0]
+set_location_assignment PIN_AA24 -to LED[1]
+set_location_assignment PIN_V16  -to LED[2]
+set_location_assignment PIN_V15  -to LED[3]
+set_location_assignment PIN_AF26 -to LED[4]
+set_location_assignment PIN_AE26 -to LED[5]
+set_location_assignment PIN_Y16  -to LED[6]
+set_location_assignment PIN_AA23 -to LED[7]
+
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to FPGA_CLK1_50
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to KEY[*]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[*]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LED[*]
