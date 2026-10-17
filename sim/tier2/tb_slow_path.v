@@ -10,6 +10,15 @@
 //   D fast uniform step      -> LIF quiet (common mode), EWMA-only fires
 `timescale 1ns/1ps
 module tb_slow_path;
+
+    // Waveform: sim_build/tb_slow_path.vcd (buka dengan GTKWave atau Surfer).
+    // Tambahkan -DNO_DUMP saat compile untuk melewatinya.
+`ifndef NO_DUMP
+    initial begin
+        $dumpfile("sim_build/tb_slow_path.vcd");
+        $dumpvars(0, tb_slow_path);
+    end
+`endif
     reg clk = 0;
     always #10 clk = ~clk;
     reg rst_n = 1;          // dropped at t = 1 ns so async resets see a real edge

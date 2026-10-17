@@ -4,6 +4,15 @@
 // Depth = number of taps the launched edge passed before the capture edge.
 `timescale 1ns/1ps
 module tb_tdl_glitch_line;
+
+    // Waveform: sim_build/tb_tdl_glitch_line.vcd (buka dengan GTKWave atau Surfer).
+    // Tambahkan -DNO_DUMP saat compile untuk melewatinya.
+`ifndef NO_DUMP
+    initial begin
+        $dumpfile("sim_build/tb_tdl_glitch_line.vcd");
+        $dumpvars(0, tb_tdl_glitch_line);
+    end
+`endif
     localparam integer L = 64;
     reg clk = 0;
     always #6.25 clk = ~clk;   // 80 MHz

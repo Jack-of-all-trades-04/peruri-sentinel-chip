@@ -4,6 +4,15 @@
 // exactly one shortened period (PHI) followed by one long period (2T - PHI).
 `timescale 1ns/1ps
 module tb_glitch_injector;
+
+    // Waveform: sim_build/tb_glitch_injector.vcd (buka dengan GTKWave atau Surfer).
+    // Tambahkan -DNO_DUMP saat compile untuk melewatinya.
+`ifndef NO_DUMP
+    initial begin
+        $dumpfile("sim_build/tb_glitch_injector.vcd");
+        $dumpvars(0, tb_glitch_injector);
+    end
+`endif
     localparam real T   = 12.5;
     localparam real PHI = 8.0;
 

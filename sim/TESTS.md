@@ -1,19 +1,63 @@
-# Simulation tests (Tier 1)
+# Tes simulasi (Tier 1)
 
-Run all tests: `./sim/run_sim.sh` (Icarus Verilog from PATH, or the LibreLane docker image).
-Each testbench is self-checking and prints one `PASS <name>` or `FAIL <name>` line.
+Semua testbench bersifat *self-checking*: setiap testbench mencetak satu baris `PASS <nama>` atau `FAIL <nama>`. Setiap kali dijalankan, testbench juga menulis file waveform (`.vcd`).
 
-| Testbench | What it checks |
+## Yang dibutuhkan
+
+| Kebutuhan | Pilihan |
 |---|---|
-| `tb_aes128_core` | FIPS-197 Appendix C.1, FIPS-197 Appendix B and NIST SP 800-38A F.1.1 vectors; latency 11 cycles from start; a round-9 single-byte fault changes exactly 4 ciphertext bytes (the DFA pattern) |
-| `tb_output_release_gate` | alarm mid-operation, at `aes_done`, and at `aes_done`+1..+4 blocks the release; alarm at +5 and no alarm release it; `ct_out` is zero whenever `ct_valid` is 0; Sentinel OFF ignores alarms; lockdown suppresses every release |
-| `tb_tamper_fsm` | counter increments once per rising edge (a 40-cycle sticky alarm counts once); no zeroize below N = 4; zeroize and lockdown at N; key cleared asynchronously; lockdown survives user reset; demo debug unlock restores the demo state |
-| `tb_de10_nano_top` | full board-level demo with buttons and switches: clean operations release the FIPS-197 C.1 ciphertext; SW0 = 0 + KEY1 releases a faulty ciphertext; SW0 = 1 + KEY1 blocks every faulty ciphertext and moves the counter; the 4th attack zeroizes the key and locks the chip; KEY0 does not undo lockdown; SW3 + KEY0 unlocks for rehearsal |
+| Simulator | **Icarus Verilog** (`iverilog` dan `vvp`) di PATH. Kalau tidak ada, script otomatis memakai Docker image LibreLane (`ghcr.io/librelane/librelane:3.0.14`). |
+| Shell bash | Linux, WSL, atau Git Bash di Windows |
+| Penampil waveform | **GTKWave** atau **Surfer** (Surfer juga bisa dibuka di browser: app.surfer-project.org) |
 
-Limits of Tier 1 simulation: the alarm comes from the demo harness, not from a physical sensor. The TDL carry chain and ring oscillators are added in Tier 2 and must be confirmed on the board, because RTL simulation does not model their delays.
+Cara install Icarus Verilog yang disarankan:
+- **WSL / Linux**: `sudo apt install iverilog gtkwave`
+- **Windows tanpa WSL**: OSS CAD Suite dari GitHub YosysHQ (`oss-cad-suite-build`, versi `windows-x64`). Isinya sudah termasuk iverilog, yosys dan gtkwave.
 
-## Waveforms
+## Langkah membuat waveform
 
-Each testbench writes `sim_build/<testbench>.vcd` when it runs. Open it with GTKWave (`gtkwave sim_build/tb_de10_nano_top.vcd`) or Surfer.
-`sim_build/` is git-ignored, so the waves are always regenerated from the current RTL. Add `-DNO_DUMP` to the iverilog command to skip them.
-For the pitch, the most useful file is `tb_de10_nano_top.vcd`: it shows the clean run, the blocked faulty ciphertext, the counter climbing and the final lockdown.
+1. Buka terminal (WSL atau Git Bash) di folder root repo `peruri-sentinel-chip/`.
+2. Cek simulator: `iverilog -V`. Kalau muncul versi, lanjut.
+3. Jalankan semua tes Tier 1:
+   ```
+   bash sim/run_sim.sh
+   ```
+4. Hasil yang benar:
+   ```
+   PASS  tb_aes128_core
+   PASS  tb_de10_nano_top
+   PASS  tb_output_release_gate
+   PASS  tb_tamper_fsm
+   waveform: sim_build/tb_*.vcd (GTKWave atau Surfer)
+   ```
+5. Buka waveform, contohnya:
+   ```
+   gtkwave sim_build/tb_de10_nano_top.vcd
+   ```
+   Di GTKWave: pilih modul di panel kiri atas (SST), lalu drag sinyal ke panel waveform.
+
+## Lokasi file waveform
+
+| File | Isi |
+|---|---|
+| `sim_build/tb_aes128_core.vcd` | Uji vektor AES dan pola fault DFA |
+| `sim_build/tb_output_release_gate.vcd` | Gate memblokir ciphertext saat alarm |
+| `sim_build/tb_tamper_fsm.vcd` | Counter tamper, zeroize, lockdown |
+| `sim_build/tb_de10_nano_top.vcd` | Demo board lengkap (paling berguna untuk pitch) |
+
+Folder `sim_build/` ada di root repo dan **diabaikan oleh git** (`.gitignore`). Waveform selalu dibuat ulang dari RTL terbaru, jadi tidak perlu di-commit. Simpan salinan ke folder lain kalau ingin dipakai untuk slide.
+
+Untuk melewati pembuatan waveform (simulasi lebih cepat), tambahkan `-DNO_DUMP` pada perintah `iverilog`.
+
+## Apa yang diuji
+
+| Testbench | Yang dicek |
+|---|---|
+| `tb_aes128_core` | Vektor FIPS-197 Appendix C.1, FIPS-197 Appendix B dan NIST SP 800-38A F.1.1; latensi 11 siklus dari `start`; fault satu byte di round 9 mengubah tepat 4 byte ciphertext (pola DFA) |
+| `tb_output_release_gate` | Alarm di tengah operasi, saat `aes_done`, dan pada `aes_done`+1 sampai +4 memblokir rilis; alarm di +5 atau tanpa alarm melepas rilis; `ct_out` bernilai nol setiap kali `ct_valid` = 0; Sentinel OFF mengabaikan alarm; lockdown menahan semua rilis |
+| `tb_tamper_fsm` | Counter naik sekali per rising edge (alarm sticky 40 siklus dihitung sekali); tidak ada zeroize di bawah N = 4; zeroize dan lockdown saat N; key dihapus secara asinkron; lockdown tetap bertahan setelah user reset; debug unlock demo mengembalikan status demo |
+| `tb_de10_nano_top` | Demo board lengkap dengan tombol dan switch: operasi bersih merilis ciphertext FIPS-197 C.1; SW0 = 0 + KEY1 merilis ciphertext faulty; SW0 = 1 + KEY1 memblokir setiap ciphertext faulty dan menaikkan counter; serangan ke-4 menghapus key dan mengunci chip; KEY0 tidak membatalkan lockdown; SW3 + KEY0 membuka kunci untuk latihan |
+
+## Batasan simulasi Tier 1
+
+Alarm berasal dari harness demo (tombol), bukan dari sensor fisik. TDL carry chain dan ring oscillator ditambahkan di Tier 2 (`sim/tier2/`) dan harus dikonfirmasi di board, karena simulasi RTL tidak memodelkan delay gerbang.

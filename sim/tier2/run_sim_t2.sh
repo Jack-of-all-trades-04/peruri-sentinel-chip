@@ -30,4 +30,5 @@ for tb in sim/tier2/tb_*.v; do
         fail=1
     fi
 done
+echo "waveform: sim_build/tb_*.vcd (GTKWave atau Surfer)"
 exit $fail

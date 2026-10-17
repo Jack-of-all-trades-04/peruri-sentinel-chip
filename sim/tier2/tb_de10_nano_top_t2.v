@@ -8,6 +8,15 @@
 // zeroize) is the real RTL.
 `timescale 1ns/1ps
 module tb_de10_nano_top_t2;
+
+    // Waveform: sim_build/tb_de10_nano_top_t2.vcd (buka dengan GTKWave atau Surfer).
+    // Tambahkan -DNO_DUMP saat compile untuk melewatinya.
+`ifndef NO_DUMP
+    initial begin
+        $dumpfile("sim_build/tb_de10_nano_top_t2.vcd");
+        $dumpvars(0, tb_de10_nano_top_t2);
+    end
+`endif
     reg clk50 = 0;
     always #10 clk50 = ~clk50;
 

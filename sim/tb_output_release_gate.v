@@ -6,8 +6,8 @@
 `timescale 1ns/1ps
 module tb_output_release_gate;
 
-    // Waveform: sim_build/tb_output_release_gate.vcd (open with GTKWave or Surfer).
-    // Compile with -DNO_DUMP to skip it.
+    // Waveform: sim_build/tb_output_release_gate.vcd (buka dengan GTKWave atau Surfer).
+    // Tambahkan -DNO_DUMP saat compile untuk melewatinya.
 `ifndef NO_DUMP
     initial begin
         $dumpfile("sim_build/tb_output_release_gate.vcd");

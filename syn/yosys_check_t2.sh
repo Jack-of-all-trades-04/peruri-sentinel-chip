@@ -16,5 +16,5 @@ $Y -q -p "$READ; synth -top de10_nano_top_t2 -flatten; check -assert; \
           tee -o sim_build_syn_t2_generic.txt stat"
 echo "generic synth (Tier 2): OK (no latches, no loops, no multipliers)"
 $Y -q -p "$READ; synth_intel_alm -family cyclonev -top de10_nano_top_t2; tee -o sim_build_syn_t2_cyclonev.txt stat" >/dev/null
-awk '/MISTRAL_ALUT/ {alut += $1} /MISTRAL_FF/ {ff += $1} END {print "ALUT", alut; print "FF", ff}' sim_build_syn_t2_cyclonev.txt
+awk '{n=0; for(i=1;i<=NF;i++) if($i ~ /^[0-9]+$/) n=$i} /MISTRAL_ALUT/ {alut+=n} /MISTRAL_FF/ {ff+=n} END {print "ALUT", alut+0; print "FF", ff+0}' sim_build_syn_t2_cyclonev.txt
 echo "(estimasi from yosys synth_intel_alm; use the Quartus fitter report for real numbers)"
