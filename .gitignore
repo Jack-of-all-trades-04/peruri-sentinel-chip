@@ -26,3 +26,20 @@ quartus/*.pin
 quartus/*.sld
 quartus/c5_pin_model_dump.txt
 sim_build_syn_*.txt
+
+# Tier 2 Quartus outputs (generated PLL sources stay in quartus/tier2/ip/ and are committed)
+quartus/tier2/db/
+quartus/tier2/incremental_db/
+quartus/tier2/output_files/
+quartus/tier2/greybox_tmp/
+quartus/tier2/qdb/
+quartus/tier2/tmp-clearbox/
+quartus/tier2/.qsys_edit/
+quartus/tier2/*.qws
+quartus/tier2/*.rpt
+quartus/tier2/*.summary
+quartus/tier2/*.smsg
+quartus/tier2/*.done
+quartus/tier2/*.jdi
+quartus/tier2/*.pin
+quartus/tier2/*.sld
