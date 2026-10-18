@@ -1,0 +1,34 @@
+# Runs on every push and pull request:
+#  1. fails if build or simulation outputs were committed by mistake
+#  2. runs all Tier 1 and Tier 2 testbenches with Icarus Verilog
+name: sim
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sim:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No generated files in git
+        run: |
+          bad=$(git ls-files '*.vcd' '*.vvp' 'sim_build/*' 'quartus/db/*' 'quartus/incremental_db/*' \
+                'quartus/output_files/*' 'quartus/tier2/db/*' 'quartus/tier2/incremental_db/*' \
+                'quartus/tier2/output_files/*')
+          if [ -n "$bad" ]; then
+            echo "These generated files must not be committed (git rm --cached <file>):"
+            echo "$bad"
+            exit 1
+          fi
+
+      - name: Install Icarus Verilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+
+      - name: Tier 1 testbenches
+        run: bash sim/run_sim.sh
+
+      - name: Tier 2 testbenches
+        run: bash sim/tier2/run_sim_t2.sh
