@@ -1,0 +1,40 @@
+[tasks]
+prove
+bmc_wrap
+reach_wrap
+reach_lock
+reach_clean
+[options]
+aigsmt none
+prove: mode prove
+prove: depth 40
+bmc_wrap: mode bmc
+bmc_wrap: depth 40
+reach_wrap: mode bmc
+reach_wrap: depth 40
+reach_wrap: expect fail
+reach_lock: mode bmc
+reach_lock: depth 60
+reach_lock: expect fail
+reach_clean: mode bmc
+reach_clean: depth 60
+reach_clean: expect fail
+[engines]
+prove: abc pdr
+bmc_wrap: abc bmc3
+reach_wrap: abc bmc3
+reach_lock: abc bmc3
+reach_clean: abc bmc3
+[script]
+prove: read_verilog -sv -formal -DFORMAL tamper_persist_formal.v
+read_verilog -sv tamper_persist_fsm.v
+bmc_wrap: read_verilog -sv -formal -DFORMAL -DSEQ_WRAP tamper_persist_formal.v
+reach_wrap: read_verilog -sv -formal -DFORMAL -DSEQ_WRAP -DREACH_WRAP tamper_persist_formal.v
+reach_lock: read_verilog -sv -formal -DFORMAL -DREACH_LOCK tamper_persist_formal.v
+reach_clean: read_verilog -sv -formal -DFORMAL -DREACH_CLEAN tamper_persist_formal.v
+prep -top tamper_persist_formal
+async2sync
+[files]
+tamper_persist_formal.v
+../../rtl/tamper_persist_fsm.v
+../../rtl/crc_util.vh

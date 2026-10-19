@@ -6,19 +6,28 @@ set_global_assignment -name FAMILY "Cyclone V"
 set_global_assignment -name DEVICE 5CSEBA6U23I7
 set_global_assignment -name TOP_LEVEL_ENTITY de10_nano_top_t2
 set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 4
 set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 256
 set_global_assignment -name MIN_CORE_JUNCTION_TEMP "-40"
 set_global_assignment -name MAX_CORE_JUNCTION_TEMP 100
 set_global_assignment -name DEVICE_FILTER_PACKAGE UFBGA
 set_global_assignment -name DEVICE_FILTER_PIN_COUNT 672
 set_global_assignment -name VERILOG_INPUT_VERSION SYSTEMVERILOG_2005
+set_global_assignment -name VERILOG_MACRO "DEMO_BUILD=1"
+
+# Widen clock monitor bounds to tolerate physical FPGA ring oscillator frequency variation (10 to 850 MHz)
+set_parameter -name MON_LO_SYS 12
+set_parameter -name MON_HI_SYS 2000
+set_parameter -name MON_LO_SEN 8
+set_parameter -name MON_HI_SEN 1300
 
 # ---------------- sources: Tier 1 modules reused ----------------
 set_global_assignment -name VERILOG_FILE ../../rtl/aes_sbox.v
 set_global_assignment -name VERILOG_FILE ../../rtl/aes128_core.v
 set_global_assignment -name VERILOG_FILE ../../rtl/master_key_vault.v
 set_global_assignment -name VERILOG_FILE ../../rtl/output_release_gate.v
-set_global_assignment -name VERILOG_FILE ../../rtl/graduated_tamper_fsm.v
+set_global_assignment -name VERILOG_FILE ../../rtl/tamper_persist_fsm.v
+set_global_assignment -name VERILOG_FILE ../../rtl/nvm_counter_model.v
 set_global_assignment -name VERILOG_FILE ../../rtl/tripwire_zeroize.v
 set_global_assignment -name VERILOG_FILE ../../rtl/dpa_hiding_lfsr.v
 set_global_assignment -name VERILOG_FILE ../../rtl/sync_2ff.v
@@ -27,9 +36,12 @@ set_global_assignment -name VERILOG_FILE ../../rtl/pulse_stretch.v
 
 # ---------------- sources: Tier 2 ----------------
 set_global_assignment -name VERILOG_FILE ../../rtl/tier2/reset_sync.v
+set_global_assignment -name VERILOG_FILE ../../rtl/tier2/cdc_toggle.v
 set_global_assignment -name VERILOG_FILE ../../rtl/tier2/tdl_glitch_line.v
 set_global_assignment -name VERILOG_FILE ../../rtl/tier2/glitch_injector.v
 set_global_assignment -name VERILOG_FILE ../../rtl/tier2/ro_sensor_mesh.v
+set_global_assignment -name VERILOG_FILE ../../rtl/tier2/clock_monitor.v
+set_global_assignment -name VERILOG_FILE ../../rtl/tier2/heartbeat_watch.v
 set_global_assignment -name VERILOG_FILE ../../rtl/tier2/fpga/ro_cell.v
 set_global_assignment -name VERILOG_FILE ../../rtl/tier2/p2se_encoder.v
 set_global_assignment -name VERILOG_FILE ../../rtl/tier2/snn_lif_engine.v
@@ -43,23 +55,29 @@ set_global_assignment -name QIP_FILE ip/sys_pll.qip
 set_global_assignment -name SDC_FILE de10_nano_top_t2.sdc
 
 # ---------------- pins (same as Tier 1, checked against the manual) ----------------
-set_location_assignment PIN_V11  -to FPGA_CLK1_50
+set_location_assignment PIN_V11 -to FPGA_CLK1_50
 set_location_assignment PIN_AH17 -to KEY[0]
 set_location_assignment PIN_AH16 -to KEY[1]
-set_location_assignment PIN_Y24  -to SW[0]
-set_location_assignment PIN_W24  -to SW[1]
-set_location_assignment PIN_W21  -to SW[2]
-set_location_assignment PIN_W20  -to SW[3]
-set_location_assignment PIN_W15  -to LED[0]
+set_location_assignment PIN_Y24 -to SW[0]
+set_location_assignment PIN_W24 -to SW[1]
+set_location_assignment PIN_W21 -to SW[2]
+set_location_assignment PIN_W20 -to SW[3]
+set_location_assignment PIN_W15 -to LED[0]
 set_location_assignment PIN_AA24 -to LED[1]
-set_location_assignment PIN_V16  -to LED[2]
-set_location_assignment PIN_V15  -to LED[3]
+set_location_assignment PIN_V16 -to LED[2]
+set_location_assignment PIN_V15 -to LED[3]
 set_location_assignment PIN_AF26 -to LED[4]
 set_location_assignment PIN_AE26 -to LED[5]
-set_location_assignment PIN_Y16  -to LED[6]
+set_location_assignment PIN_Y16 -to LED[6]
 set_location_assignment PIN_AA23 -to LED[7]
 
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to FPGA_CLK1_50
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to KEY[*]
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SW[*]
 set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LED[*]
+
+set_global_assignment -name LAST_QUARTUS_VERSION "25.1std.0 Lite Edition"
+set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
+set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
+set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top

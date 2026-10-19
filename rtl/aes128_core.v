@@ -4,10 +4,11 @@
 // start edge, then rounds 1..10 take one cycle each. done pulses for one
 // cycle together with a valid ct_raw, 10 cycles after start.
 //
-// Demo-only fault hook: when fault_en is high at start, the mask is XORed
-// into state byte fault_byte at the beginning of round fault_round. This
-// emulates a single-byte fault for DFA demonstrations. Tie fault_en to 0 in
-// a production build.
+// Demo-only fault hook (DEMO_BUILD only): when fault_en is high at start, the
+// mask is XORed into state byte fault_byte at the beginning of round
+// fault_round. This emulates a single-byte fault for DFA demonstrations.
+// The hook ports and round_idx exist only when DEMO_BUILD is defined; a
+// production build has neither (checked by syn/yosys_check.sh).
 //
 // Byte order: byte 0 is bits [127:120]. State is column-major as in FIPS-197
 // (bytes 0..3 form column 0).
@@ -17,27 +18,24 @@ module aes128_core (
     input  wire         start,
     input  wire [127:0] key,
     input  wire [127:0] pt,
+`ifdef DEMO_BUILD
     input  wire         fault_en,
     input  wire [3:0]   fault_round,
     input  wire [3:0]   fault_byte,
     input  wire [7:0]   fault_mask,
+    output wire [3:0]   round_idx,
+`endif
     output reg  [127:0] ct_raw,
     output reg          done,
-    output wire         busy,
-    output wire [3:0]   round_idx
+    output wire         busy
 );
 
     reg [127:0] state;
     reg [127:0] rk;
     reg [3:0]   round;
     reg         running;
-    reg         f_en;
-    reg [3:0]   f_round;
-    reg [3:0]   f_byte;
-    reg [7:0]   f_mask;
 
     assign busy      = running;
-    assign round_idx = round;
 
     // ---------------- round constant ----------------
     reg [7:0] rcon;
@@ -75,7 +73,20 @@ module aes128_core (
     wire [31:0] n3 = w3 ^ n2;
     wire [127:0] next_rk = {n0, n1, n2, n3};
 
-    // ---------------- fault injection (demo only) ----------------
+    // ---------------- fault injection (demo build only) ----------------
+`ifdef DEMO_BUILD
+    reg         f_en;
+    reg [3:0]   f_round;
+    reg [3:0]   f_byte;
+    reg [7:0]   f_mask;
+    assign round_idx = round;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            f_en <= 1'b0; f_round <= 4'd0; f_byte <= 4'd0; f_mask <= 8'h0;
+        end else if (!running && start) begin
+            f_en <= fault_en; f_round <= fault_round; f_byte <= fault_byte; f_mask <= fault_mask;
+        end
+    end
     wire inject = running && f_en && (round == f_round);
     reg [127:0] fault_vec;
     always @(*) begin
@@ -84,6 +95,9 @@ module aes128_core (
             fault_vec[127 - 8*f_byte -: 8] = f_mask;
     end
     wire [127:0] s_in = state ^ fault_vec;
+`else
+    wire [127:0] s_in = state;
+`endif
 
     // ---------------- SubBytes ----------------
     wire [127:0] sb;
@@ -141,10 +155,6 @@ module aes128_core (
             running <= 1'b0;
             done    <= 1'b0;
             ct_raw  <= 128'h0;
-            f_en    <= 1'b0;
-            f_round <= 4'd0;
-            f_byte  <= 4'd0;
-            f_mask  <= 8'h0;
         end else begin
             done <= 1'b0;
             if (!running) begin
@@ -153,10 +163,6 @@ module aes128_core (
                     rk      <= key;
                     round   <= 4'd1;
                     running <= 1'b1;
-                    f_en    <= fault_en;
-                    f_round <= fault_round;
-                    f_byte  <= fault_byte;
-                    f_mask  <= fault_mask;
                 end
             end else begin
                 state <= round_out;

@@ -1,0 +1,42 @@
+# LibreLane configuration: PERURI-SENTINEL Tier 1 production core on sky130A.
+# The RTL is read in place from ../rtl (no copies). Production build:
+# DEMO_BUILD is NOT defined. nvm_counter_model.v (off-core NVM) and
+# de10_nano_top.v (FPGA board top) are intentionally not part of the ASIC build.
+DESIGN_NAME: peruri_sentinel_core
+PDK: sky130A
+STD_CELL_LIBRARY: sky130_fd_sc_hd
+
+VERILOG_FILES:
+  - dir::../rtl/aes_sbox.v
+  - dir::../rtl/aes128_core.v
+  - dir::../rtl/master_key_vault.v
+  - dir::../rtl/output_release_gate.v
+  - dir::../rtl/tamper_persist_fsm.v
+  - dir::../rtl/tripwire_zeroize.v
+  - dir::../rtl/dpa_hiding_lfsr.v
+  - dir::../rtl/peruri_sentinel_core.v
+VERILOG_INCLUDE_DIRS:
+  - dir::../rtl
+
+CLOCK_PORT: clk
+CLOCK_PERIOD: 20.0   # ns; run_flow.sh overrides it from the CLOCK_PERIOD env var
+
+# Synthesis and timing optimization settings
+SYNTH_STRATEGY: "AREA 0"
+MAX_FANOUT_CONSTRAINT: 16
+PL_RESIZER_HOLD_SLACK_MARGIN: 0.02
+PL_RESIZER_SETUP_SLACK_MARGIN: 0.2
+PNR_CORNERS:
+  - nom_tt_025C_1v80
+  - nom_ss_100C_1v60
+  - nom_ff_n40C_1v95
+
+# Floorplan: about 480 signal pins (128-bit pt, key_wr_data, ct_out), so the
+# die is sized by utilisation and checked for pin pitch on the perimeter.
+FP_SIZING: relative
+FP_CORE_UTIL: 40
+PL_TARGET_DENSITY_PCT: 50
+
+# The FSM state registers carry (* fsm_encoding = "none" *) in the RTL, so
+# Yosys fsm_detect leaves their fault-tolerant encodings alone (the LibreLane
+# synthesis script always runs the `fsm` pass; there is no switch for it).

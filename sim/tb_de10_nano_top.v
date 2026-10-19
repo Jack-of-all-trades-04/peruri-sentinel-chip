@@ -105,6 +105,43 @@ module tb_de10_nano_top;
         chk(!dut.u_core.lockdown && !dut.u_core.key_is_zero && n_ok > ok0 && LED[2:0] == 0,
             "SW3+KEY0 debug unlock restores demo state");
 
+        // ---- persistent counters (P1-1): card removed keeps the count ----
+        SW = 4'b0001; repeat (10) @(posedge clk);
+        bad0 = n_bad;
+        press(1); wait_ops(3); press(1); wait_ops(3);
+        chk(dut.u_core.tamper_counter == 2 && n_bad == bad0, "two more attacks: alarm_count 2");
+        SW = 4'b1001; repeat (10) @(posedge clk);
+        press(1); wait_ops(4);                         // card removed: core POR only
+        chk(dut.u_core.tamper_counter == 2 && LED[2:0] == 3'd2 && !dut.u_core.lockdown,
+            "card removed (core POR): alarm_count still 2");
+        ok0 = n_ok; SW = 4'b0001; wait_ops(4);
+        chk(n_ok > ok0, "clean ops continue after the card returns");
+
+        // ---- power cut in the middle of an encryption ----
+        SW = 4'b1011; repeat (10) @(posedge clk);
+        bad0 = n_bad;
+        press(1); wait_ops(5);
+        chk(dut.u_core.tear_count == 1 && dut.u_core.tamper_counter == 2 && n_bad == bad0,
+            "power cut mid-op: tear_count 1, alarm_count unchanged, nothing faulty out");
+
+        // ---- power_warn (droop) during an encryption ----
+        SW = 4'b1101; repeat (10) @(posedge clk);
+        bad0 = n_bad; blk0 = n_blk;
+        press(1); wait_ops(4);
+        chk(dut.u_core.tear_count == 2 && dut.u_core.tamper_counter == 2 &&
+            n_blk == blk0 + 1 && n_bad == bad0,
+            "power_warn: op aborted (blocked), tear_count 2, alarm_count unchanged");
+
+        // ---- LED view: tear_count ----
+        SW = 4'b1111; repeat (10) @(posedge clk);
+        press(1); repeat (10) @(posedge clk);
+        chk(LED[2:0] == 3'd2, "SW3..1 = 111 + KEY1: LED[2:0] shows tear_count");
+        press(1); repeat (10) @(posedge clk);
+        chk(LED[2:0] == 3'd2 && dut.u_core.tamper_counter == 2, "toggle back: LED[2:0] shows alarm_count");
+        SW = 4'b0001; repeat (10) @(posedge clk);
+        ok0 = n_ok; wait_ops(4);
+        chk(n_ok > ok0, "clean ops still released after the power scenarios");
+
         if (errors == 0) $display("PASS tb_de10_nano_top");
         else             $display("FAIL tb_de10_nano_top (%0d errors)", errors);
         $finish;

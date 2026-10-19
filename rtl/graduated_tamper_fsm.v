@@ -8,8 +8,8 @@
 // reconfiguration), not by the user reset. In the ASIC the counter needs
 // OTP/eFuse/host NVM; this RTL does not model that.
 //
-// Debug unlock (demo rehearsals only): when DEMO_UNLOCK = 1, debug_unlock
-// clears counter and lockdown. Set DEMO_UNLOCK = 0 for a production build.
+// Debug unlock (demo rehearsals only): the port exists only in DEMO_BUILD,
+// and only acts when DEMO_UNLOCK = 1.
 module graduated_tamper_fsm #(
     parameter integer N           = 4,
     parameter integer DEMO_UNLOCK = 1
@@ -17,11 +17,16 @@ module graduated_tamper_fsm #(
     input  wire       clk,
     input  wire       por_n,
     input  wire       alarm,
+`ifdef DEMO_BUILD
     input  wire       debug_unlock,
+`endif
     output reg  [3:0] tamper_counter,
     output reg        zeroize_req,
     output reg        lockdown_state
 );
+`ifndef DEMO_BUILD
+    wire debug_unlock = 1'b0;     // production: no unlock port at all
+`endif
     reg alarm_d;
     wire alarm_rise = alarm & ~alarm_d;
 

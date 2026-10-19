@@ -38,18 +38,24 @@ module snn_lif_engine #(
     output reg               anomaly_alarm
 );
     localparam integer VMAX = (1 << (VW - 1)) - 1;
+    // Sized copies so every assignment below is width-exact (no truncation).
+    localparam signed [VW-1:0] VMAX_V = VMAX[VW-1:0];
+    localparam signed [VW+4:0] WT_TDL = W_TDL[VW+4:0];
+    localparam signed [VW+4:0] WT_SLF = W_SELF[VW+4:0];
+    localparam signed [VW+4:0] WT_NBR = W_NEIGH[VW+4:0];
+    localparam signed [VW+4:0] WT_0   = {(VW+5){1'b0}};
 
     reg signed [VW-1:0] v [0:N_NEU-1];
 
-    function integer wgt;      // weight from input j to neuron i
+    function signed [VW+4:0] wgt;      // weight from input j to neuron i
         input integer i;
         input integer j;
         begin
-            if (j == 8)                                      wgt = W_TDL;
-            else if (j > 8)                                  wgt = 0;
-            else if (j == i)                                 wgt = W_SELF;
-            else if (j == (i + 1) % N_NEU || j == (i + N_NEU - 1) % N_NEU) wgt = W_NEIGH;
-            else                                             wgt = 0;
+            if (j == 8)                                      wgt = WT_TDL;
+            else if (j > 8)                                  wgt = WT_0;
+            else if (j == i)                                 wgt = WT_SLF;
+            else if (j == (i + 1) % N_NEU || j == (i + N_NEU - 1) % N_NEU) wgt = WT_NBR;
+            else                                             wgt = WT_0;
         end
     endfunction
 
@@ -71,7 +77,7 @@ module snn_lif_engine #(
             end else begin
                 f_next[i] = 1'b0;
                 if (acc < 0)         v_next[i] = {VW{1'b0}};
-                else if (acc > VMAX) v_next[i] = VMAX;
+                else if (acc > VMAX) v_next[i] = VMAX_V;
                 else                 v_next[i] = acc[VW-1:0];
             end
         end

@@ -39,9 +39,9 @@ module tb_de10_nano_top_t2;
     integer dd;
     reg [L-1:0] mask, tb_sum;
     always @(*) begin
-        dd   = (glitch_low || burst_low) ? 15 : (dut.u_core.u_tdl.cd[24] ? 40 : 36);
+        dd   = (glitch_low || burst_low) ? 15 : (dut.u_core.u_tdl.chain_in ? 40 : 36);
         mask = ({{(L-1){1'b0}}, 1'b1} << dd) - 1;
-        tb_sum = dut.u_core.u_tdl.cd[24] ? ~mask : mask;
+        tb_sum = dut.u_core.u_tdl.chain_in ? ~mask : mask;
     end
     always @(tb_sum) force dut.u_core.u_tdl.sum = {1'b0, tb_sum};
 
@@ -189,6 +189,18 @@ module tb_de10_nano_top_t2;
         ok0 = n_ok; wait_ops(4);
         chk(!dut.u_core.lockdown && !dut.key_is_zero && n_ok > ok0 && LED[2:0] == 0,
             "SW3+KEY0 unlock restores demo state");
+
+        // ---- power_warn (SW3 = 1, SW2 = 0, SW1 = 0, KEY1) aborts the next encryption ----
+        blk0 = n_blk; ok0 = n_ok;
+        SW[1] = 0; SW[3] = 1; cyc(8); press(1); SW[3] = 0; cyc(8);
+        wait_ops(3);
+        chk(n_blk == blk0 + 1 && n_bad == 0 && dut.u_core.tear_count == 1 && dut.u_core.tamper_counter == 0,
+            "power_warn: encryption aborted, tear_count 1, alarm_count 0");
+        // SW3 = 1, SW2 = 0, SW1 = 1 + KEY1 toggles LED[2:0] to the tear count
+        SW[3] = 1; SW[1] = 1; cyc(8); press(1); SW[1] = 0; SW[3] = 0; cyc(8);
+        chk(LED[2:0] == 3'd1, "tear view: LED[2:0] shows tear_count");
+        ok0 = n_ok; wait_ops(3);
+        chk(n_ok > ok0, "clean operations continue after the abort");
 
         if (errors == 0) $display("PASS tb_de10_nano_top_t2");
         else             $display("FAIL tb_de10_nano_top_t2 (%0d errors)", errors);

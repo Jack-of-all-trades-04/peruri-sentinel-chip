@@ -24,15 +24,15 @@ module tb_slow_path;
     reg rst_n = 1;          // dropped at t = 1 ns so async resets see a real edge
     integer errors = 0;
 
-    wire [8*16-1:0] counts;
+    wire [8*12-1:0] counts;
     wire            valid, tick, lif, fixed_a, ewma_a;
     wire [11:0]     spikes;
     wire [7:0]      fire;
 
-    ro_sensor_mesh #(.NUM(8), .DIV_BITS(3), .CNT_W(16), .WINDOW(256)) u_mesh (
+    ro_sensor_mesh #(.NUM(8), .DIV_BITS(3), .CNT_W(12), .WINDOW(256)) u_mesh (
         .clk(clk), .rst_n(rst_n), .en(1'b1), .ro_counts(counts), .valid(valid)
     );
-    p2se_encoder #(.NUM(8), .CNT_W(16), .DTH(8)) u_p2se (
+    p2se_encoder #(.NUM(8), .CNT_W(12), .DTH(8)) u_p2se (
         .clk(clk), .rst_n(rst_n), .ro_counts(counts), .ro_valid(valid),
         .tdl_event(1'b0), .spike_bus(spikes), .tick(tick)
     );
@@ -40,7 +40,7 @@ module tb_slow_path;
         .clk(clk), .rst_n(rst_n), .tick(tick), .spike_bus(spikes),
         .fire(fire), .anomaly_alarm(lif)
     );
-    ablation_detectors #(.NUM(8), .CNT_W(16), .FTH(12), .ETH(8)) u_abl (
+    ablation_detectors #(.NUM(8), .CNT_W(12), .FTH(12), .ETH(8)) u_abl (
         .clk(clk), .rst_n(rst_n), .ro_counts(counts), .ro_valid(valid),
         .fixed_alarm(fixed_a), .ewma_alarm(ewma_a)
     );

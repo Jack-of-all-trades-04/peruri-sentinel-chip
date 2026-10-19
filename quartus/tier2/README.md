@@ -6,12 +6,12 @@ Tier 2 adds real sensors on top of the Tier 1 demo: a tapped delay line (TDL) on
 
 1. Generate the PLL: [PLL_SETUP.md](PLL_SETUP.md).
 2. Open `quartus/tier2/de10_nano_top_t2.qpf`, Processing > Start Compilation.
-3. Expected warnings (not errors): combinational loops in `ro_cell` (ring oscillators), gated clock at `glitch_injector`, unconstrained RO clocks.
+3. Expected warnings (not errors): combinational loops in `ro_cell` (ring oscillators) only. The RO divider bits are declared as clocks in the `.sdc` (one base clock and two generated clocks per RO, asynchronous to the PLL clocks), so Timing Analyzer reports the design as fully constrained for setup and hold.
 4. Timing Analyzer:
    - Report Clocks: each `get_clocks` pattern in the `.sdc` matches one PLL clock.
    - Setup and hold slack positive for the CLK_sys A and CLK_sentinel clocks.
 5. Check the sensors were not optimised away:
-   - Technology Map Viewer (Post-Fitting), search `u_tdl`: a carry chain of 64 cells and 24 coarse LUTs.
+   - Technology Map Viewer (Post-Fitting), search `u_tdl`: a carry chain (`Add0`, cells linked by cout/cin), 63 coarse LUTs `cd[1..63]` and the tap mux feeding `chain_in`.
    - Search `u_mesh`: each `g_ro[i].u_cell` keeps 13 LUTs.
 
 ## Board controls
@@ -26,28 +26,37 @@ Tier 2 adds real sensors on top of the Tier 1 demo: a tapped delay line (TDL) on
 
 | LED, SW2 = 0 | Meaning | LED, SW2 = 1 | Meaning |
 |---|---|---|---|
-| LED0-2 | tamper counter | LED0-5 | TDL calibrated minimum depth (0-63) |
+| LED0-2 | tamper counter | LED0-5 | SW1 = 0: TDL calibrated minimum depth (0-63); SW1 = 1: chosen coarse tap |
 | LED3 | heartbeat | | |
 | LED4 | last ciphertext correct | | |
 | LED5 | release blocked | | |
 | LED6 | alarm seen | LED6 | TDL calibration failed |
 | LED7 | LOCKDOWN | LED7 | TDL armed |
 
+Alarm-source view (SW2 = 1 and SW3 = 1), for hunting false alarms. Alarms are not counted while SW2 = 1. KEY0 in this view also performs the debug unlock.
+
+| LED | Meaning |
+|---|---|
+| LED7 | TDL alert seen in the last 0.5 s (needs SW0 = 1) |
+| LED6 | slow-path LIF alarm seen (raw, independent of SW0) |
+| LED0-5 | lowest TDL depth (either edge) in the last ~0.4 s, saturates at 63. The gap to the calibrated minimum (SW3 = 0, SW1 = 0) is the margin `TDL_K` must cover |
+
 ## TDL calibration on the board
 
-The TDL only works if the launched edge reaches the middle of the 64-tap carry chain at the capture edge. That depends on the real LUT and routing delays, so `TDL_COARSE` (number of inverter LUTs before the chain, default 24) must be tuned once per board and clock frequency.
+The TDL only works if the launched edge reaches the middle of the 64-tap carry chain at the capture edge. That depends on the real LUT and routing delays, so the coarse delay is chosen on the board, not at compile time: `tdl_glitch_line` has 63 kept inverter LUTs and a mux that feeds tap `cd[sel]` into the carry chain. After every reset the calibration sweeps `sel` from 0 upwards and keeps the first tap where both edge polarities give a depth between 16 and 60. If no tap fits, it sweeps again with the loose limits 5 to 63. The sweep takes about 7 ms at 80 MHz (estimasi).
 
-1. Program, set SW2 = 1, press KEY0 (recalibrates, takes under 1 ms).
+1. Program, set SW2 = 1, press KEY0 and wait one second.
 2. Read the LEDs:
 
-| LED7 | LED6 | LED0-5 | Meaning | Action |
-|---|---|---|---|---|
-| 1 | 0 | about 10-50 | armed, good | done; best near 32 |
-| 0 | 1 | 63 | edge passes the whole chain | increase `TDL_COARSE` |
-| 0 | 1 | 0-4 | edge does not reach the chain | decrease `TDL_COARSE` |
+| LED7 | LED6 | Meaning |
+|---|---|---|
+| 1 | 0 | armed, good |
+| 0 | 1 | no tap worked in either pass |
+| 0 | 0 | still calibrating (should end within 1 s) |
 
-3. Change `TDL_COARSE` in `rtl/tier2/de10_nano_top_t2.v`, recompile, repeat. Odd and even values both work; the RTL compensates for the inversion.
-4. False-alarm check: SW0 = 1, SW2 = 0, leave the board idle for 5 minutes. LED6 must stay off and the counter at 0. If not, increase `TDL_K` (margin, default 4 taps).
+3. LED0-5 with SW1 = 0: calibrated minimum depth (rising edge), between 16 and 60 after a strict pass. With SW1 = 1: the coarse tap the sweep chose. Write both down; they are board measurements.
+4. If LED6 = 1: the full coarse delay (63 LUTs) is still shorter than one period, or even tap 0 is longer than one period. Increase or decrease `TDL_COARSE` in `rtl/tier2/de10_nano_top_t2.v` and rebuild.
+5. False-alarm check: SW0 = 1, SW2 = 0, leave the board idle for 5 minutes. LED6 must stay off and the counter at 0. If not, use the alarm-source view to see whether TDL or LIF fires, and how far the live depth drops below the calibrated minimum; set `TDL_K` (margin, default 12 taps in `de10_nano_top_t2.v`) above that gap. The demo glitch (8.0 ns instead of 12.5 ns) removes far more depth than the whole carry chain spans, so a larger margin does not hide it.
 
 ## Demo sequence
 

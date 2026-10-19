@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Minimal stand-in for `make` (the LibreLane image has none).
+
+Supports what eqy's strategies.mk uses: explicit rules "target: deps",
+recipe lines with backslash continuation, "$$" escapes, the automatic
+variables $@ $^ $<, $(MAKE) (recursive call to this script), .DEFAULT_GOAL,
+and -j/-C/-f. Targets run in dependency order; targets
+whose prerequisites are done run in parallel. Exit code is non-zero if any
+recipe fails.
+"""
+import concurrent.futures as cf
+import os
+import subprocess
+import sys
+
+SELF = os.path.abspath(sys.argv[0])
+args = sys.argv[1:]
+jobs, cwd, mk, goals = 1, ".", "Makefile", []
+i = 0
+while i < len(args):
+    a = args[i]
+    if a.startswith("-j"):
+        if a[2:]:
+            jobs = int(a[2:])
+        else:
+            jobs = int(args[i + 1]); i += 1
+    elif a == "-C":
+        cwd = args[i + 1]; i += 1
+    elif a == "-f":
+        mk = args[i + 1]; i += 1
+    elif not a.startswith("-"):
+        goals.append(a)
+    i += 1
+os.chdir(cwd)
+
+# join continuation lines
+lines, buf = [], ""
+for line in open(mk):
+    line = line.rstrip("\n")
+    if line.endswith("\\"):
+        buf += line[:-1] + " "
+        continue
+    lines.append(buf + line)
+    buf = ""
+
+rules, order, cur, default_goal = {}, [], None, None
+for line in lines:
+    if line.startswith(".DEFAULT_GOAL"):
+        default_goal = line.split("=", 1)[1].strip()
+        continue
+    if line.startswith("\t"):
+        if cur is not None:
+            rules[cur][1].append(line[1:])
+        continue
+    if not line.strip() or line.startswith("#"):
+        cur = None
+        continue
+    if ":" in line and not line.startswith(".") and ":=" not in line:
+        tgt, deps = line.split(":", 1)
+        for t in tgt.split():
+            rules.setdefault(t, [deps.split(), []])
+            order.append(t)
+        cur = tgt.split()[0]
+    else:
+        cur = None
+
+
+def recipe(t):
+    deps, cmds = rules[t]
+    out = []
+    for c in cmds:
+        c = c.lstrip("@-")
+        c = c.replace("$@", t).replace("$^", " ".join(deps)).replace("$<", deps[0] if deps else "")
+        c = c.replace("$(MAKE)", f"{sys.executable} {SELF}")
+        c = c.replace("$$", "$")
+        out.append(c)
+    return out
+
+
+def run(t):
+    for c in recipe(t):
+        r = subprocess.run(["bash", "-c", c])
+        if r.returncode != 0:
+            return t, r.returncode
+    return t, 0
+
+
+# targets needed for the goals (default: .DEFAULT_GOAL, else the first rule)
+if not goals:
+    goals = [default_goal or order[0]]
+want = set()
+stack = list(goals)
+while stack:
+    t = stack.pop()
+    if t in want or t not in rules:
+        continue
+    want.add(t)
+    stack.extend(d for d in rules[t][0] if d in rules)
+
+done, failed, fail = set(), set(), 0
+with cf.ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
+    running = {}
+    while len(done) + len(failed) < len(want):
+        for t in want:
+            if t not in done and t not in failed and t not in running \
+                    and any(d in failed for d in rules[t][0]):
+                failed.add(t)
+        ready = [t for t in want if t not in done and t not in failed and t not in running
+                 and all(d in done or d not in rules for d in rules[t][0])]
+        for t in ready:
+            running[t] = ex.submit(run, t)
+        if not running:
+            break
+        fin, _ = cf.wait(list(running.values()), return_when=cf.FIRST_COMPLETED)
+        for t, fut in list(running.items()):
+            if fut in fin:
+                _, rc = fut.result()
+                del running[t]
+                if rc:
+                    print(f"make-shim: {t} failed ({rc})", flush=True)
+                    failed.add(t)
+                    fail = 1
+                else:
+                    done.add(t)
+sys.exit(fail)

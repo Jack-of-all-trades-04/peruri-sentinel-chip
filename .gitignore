@@ -43,3 +43,12 @@ quartus/tier2/*.done
 quartus/tier2/*.jdi
 quartus/tier2/*.pin
 quartus/tier2/*.sld
+
+# LibreLane run outputs
+asic/runs/
+
+# Local leftovers and Quartus IP simulation scripts (contain local install paths)
+quartus/tier2/c5_pin_model_dump.txt
+*.bak_*
+quartus/tier2/ip/sys_pll_sim/
+quartus/tier2/ip/sys_pll_sim.f

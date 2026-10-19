@@ -85,7 +85,7 @@ module p2se_encoder #(
         sum_dev = {(DW+LOG2_NUM){1'b0}};
         for (k = 0; k < NUM; k = k + 1)
             sum_dev = sum_dev + dev[k];
-        cm = sum_dev >>> LOG2_NUM;
+        cm = sum_dev[DW+LOG2_NUM-1:LOG2_NUM];   // == sum_dev >>> LOG2_NUM, width-exact
         for (k = 0; k < NUM; k = k + 1) begin
             r     = dev[k] - cm;
             sp[k] = (r >= DTH) || (r <= -DTH);

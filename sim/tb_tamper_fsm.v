@@ -26,7 +26,7 @@ module tb_tamper_fsm;
         .tamper_counter(cnt), .zeroize_req(zreq), .lockdown_state(lock)
     );
     tripwire_zeroize u_trip (.clk(clk), .por_n(por_n), .zeroize_req(zreq), .async_zeroize_n(zn));
-    master_key_vault u_vault (.clk(clk), .rst_n(rst_n), .async_zeroize_n(zn), .key_to_cipher(key));
+    master_key_vault u_vault (.clk(clk), .rst_n(rst_n), .por_n(por_n), .async_zeroize_n(zn), .key_to_cipher(key), .key_loaded());
 
     task pulse;
         input integer len;

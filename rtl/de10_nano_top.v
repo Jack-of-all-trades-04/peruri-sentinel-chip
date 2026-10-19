@@ -4,13 +4,23 @@
 // Controls
 //   KEY0 (active low)  user reset. Hold SW3 high while pressing KEY0 for the
 //                      demo-only debug unlock (clears LOCKDOWN for rehearsal).
-//   KEY1 (active low)  run the next encryption WITH a fault at round 9.
+//   KEY1 (active low)  with SW3 = 0: run the next encryption WITH a fault at
+//                      round 9. With SW3 = 1, KEY1 selects a power scenario
+//                      by SW2/SW1 (no fault is injected):
+//                        SW3 SW2 SW1 = 1 0 0  card removed from the reader:
+//                                             power-on reset of the core only;
+//                                             the NVM model keeps its record
+//                        1 0 1  power cut in the middle of the next encryption
+//                        1 1 0  power_warn (droop) during the next encryption
+//                        1 1 1  toggle LED[2:0] between alarm_count and
+//                               tear_count
 //   SW0                Sentinel enable (0 = OFF, faulty ciphertext leaks).
-//   SW1                attack mode: 0 = clock-glitch emulation, 1 = droop
-//                      emulation (Tier 1: both are emulated byte faults).
-//   SW3                debug unlock qualifier (see KEY0).
+//   SW1                attack mode (SW3 = 0): 0 = clock-glitch emulation,
+//                      1 = droop emulation (both are emulated byte faults).
+//   SW3                debug unlock qualifier (see KEY0) / power scenarios.
 // LEDs
-//   LED[2:0] tamper_counter     LED[3] heartbeat (~1.5 Hz)
+//   LED[2:0] alarm_count (or tear_count, see KEY1 with SW3 SW2 SW1 = 111)
+//   LED[3]   heartbeat (~1.5 Hz)
 //   LED[4]   last released ciphertext matched FIPS-197 C.1 (off for 0.5 s
 //            when a faulty ciphertext is released, off in LOCKDOWN)
 //   LED[5]   release blocked by gate (0.5 s)
@@ -18,29 +28,45 @@
 //   LED[7]   LOCKDOWN, key zeroized
 //
 // Tier 1 alarm source: the demo harness raises the alarm in the round where
-// it injects the fault. This tests gate and FSM logic only; real TDL/RO
-// sensors replace it in Tier 2.
+// it injects the fault. This tests gate and tamper-controller logic only;
+// real TDL/RO sensors replace it in Tier 2.
+//
+// The tamper counters live in nvm_counter_model (registers that the core's
+// power-on reset does not touch), standing in for the parent chip's NVM. A
+// real board power-off or reprogramming still clears them; "card removed"
+// above is the scenario the NVM is for.
 module de10_nano_top #(
     parameter integer DEB_CYCLES     = 500000,     // 10 ms
     parameter integer STRETCH_CYCLES = 25000000,   // 0.5 s
     parameter integer OP_PERIOD      = 5000000,    // one clean op every 0.1 s
     parameter integer HB_BIT         = 24,         // 50 MHz / 2^25 ~ 1.5 Hz
     parameter integer N              = 4,
+    parameter integer M              = 8,
     parameter integer H              = 4,
-    parameter integer DEMO_UNLOCK    = 1
+    parameter integer DEMO_UNLOCK    = 1,
+    parameter integer CUT_CYCLES     = 16,         // length of an emulated power loss
+    parameter integer NVM_WR_LAT     = 8
 ) (
     input  wire       FPGA_CLK1_50,
     input  wire [1:0] KEY,
     input  wire [3:0] SW,
     output wire [7:0] LED
 );
+`ifndef DEMO_BUILD
+    // This board top uses the demo-only ports of the core. Compile it with
+    // DEMO_BUILD defined (Quartus: VERILOG_MACRO "DEMO_BUILD=1"; iverilog:
+    // -DDEMO_BUILD). Without it, elaboration fails here on purpose.
+    DEMO_BUILD_must_be_defined_for_the_board_top u_build_check ();
+`endif
     localparam [127:0] DEMO_KEY = 128'h000102030405060708090a0b0c0d0e0f;
     localparam [127:0] DEMO_PT  = 128'h00112233445566778899aabbccddeeff;
     localparam [127:0] EXP_CT   = 128'h69c4e0d86a7b0430d8cdb78070b4c55a;
+    localparam integer CW   = 4;
+    localparam integer RECW = 17 + 2*CW;
 
     wire clk = FPGA_CLK1_50;
 
-    // ---------------- power-on reset (persistent state) ----------------
+    // ---------------- board power-on reset ----------------
     reg [3:0] por_cnt = 4'd0;       // power-up value 0 (FPGA configuration)
     always @(posedge clk)
         if (!por_cnt[3]) por_cnt <= por_cnt + 4'd1;
@@ -60,23 +86,57 @@ module de10_nano_top #(
     debounce #(.CYCLES(DEB_CYCLES), .INIT(1'b1)) u_db0 (.clk(clk), .rst_n(por_n), .d(key0_s), .q(key0_n));
     debounce #(.CYCLES(DEB_CYCLES), .INIT(1'b1)) u_db1 (.clk(clk), .rst_n(por_n), .d(key1_s), .q(key1_n));
 
-    wire rst_n        = por_n & key0_n;
-    wire debug_unlock = sw_s[3] & ~key0_n;
     wire sentinel_en  = sw_s[0];
     wire attack_mode  = sw_s[1];
+    wire debug_unlock = sw_s[3] & ~key0_n;
 
     reg key1_d;
     always @(posedge clk or negedge por_n)
         if (!por_n) key1_d <= 1'b1;
         else        key1_d <= key1_n;
-    wire attack_press = key1_d & ~key1_n;   // falling edge = press
+    wire key1_press   = key1_d & ~key1_n;       // falling edge = press
+    wire attack_press = key1_press & ~sw_s[3];
+    wire p_card       = key1_press &  sw_s[3] & ~sw_s[2] & ~sw_s[1];
+    wire p_cut        = key1_press &  sw_s[3] & ~sw_s[2] &  sw_s[1];
+    wire p_warn       = key1_press &  sw_s[3] &  sw_s[2] & ~sw_s[1];
+    wire p_view       = key1_press &  sw_s[3] &  sw_s[2] &  sw_s[1];
+
+    // ---------------- emulated power loss of the core ----------------
+    wire [3:0] round_idx;
+    reg        cut_pending, warn_pending, warn_active, tear_view;
+    reg [$clog2(CUT_CYCLES+1)-1:0] cut_cnt;
+    wire cutting = (cut_cnt != 0);
+    always @(posedge clk or negedge por_n) begin
+        if (!por_n) begin
+            cut_cnt      <= 0;
+            cut_pending  <= 1'b0;
+            warn_pending <= 1'b0;
+            warn_active  <= 1'b0;
+            tear_view    <= 1'b0;
+        end else begin
+            if (p_view) tear_view <= ~tear_view;
+            if (p_cut)  cut_pending  <= 1'b1;
+            if (p_warn) warn_pending <= 1'b1;
+            // card removed now; or power cut once the AES is at round 5
+            if (p_card || (cut_pending && round_idx == 4'd5)) begin
+                cut_cnt     <= CUT_CYCLES;
+                cut_pending <= 1'b0;
+            end else if (cutting)
+                cut_cnt <= cut_cnt - 1'b1;
+            // droop flagged by power_warn while the AES is in rounds 3..6
+            warn_active <= warn_pending && (round_idx >= 4'd3) && (round_idx <= 4'd6);
+            if (warn_active) warn_pending <= 1'b0;
+        end
+    end
+
+    wire core_por_n = por_n & ~cutting;          // core power-on reset
+    wire rst_n      = core_por_n & key0_n;        // user reset (also during a cut)
 
     // ---------------- demo harness: operation scheduler ----------------
     wire         core_busy;
-    wire [3:0]   round_idx;
     wire [127:0] ct_out;
     wire         ct_valid, gate_blocked, lockdown, key_is_zero;
-    wire [3:0]   tamper_counter;
+    wire [CW-1:0] alarm_count, tear_count;
 
     localparam integer TW = $clog2(OP_PERIOD + 1);
     reg [TW-1:0] op_timer;
@@ -113,17 +173,31 @@ module de10_nano_top #(
     // Harness alarm: one cycle, in the round where the fault is injected.
     wire harness_alarm = cur_fault & core_busy & (round_idx == f_round);
 
+    // ---------------- NVM model (parent chip NVM stand-in) ----------------
+    wire            nvm_rd_en, nvm_rd_addr, nvm_rd_valid, nvm_wr_en, nvm_wr_addr, nvm_wr_done;
+    wire [RECW-1:0] nvm_rd_data, nvm_wr_data;
+    nvm_counter_model #(.CW(CW), .RD_LAT(2), .WR_LAT(NVM_WR_LAT), .INIT_BLANK(0)) u_nvm (
+        .clk(clk), .power_ok(~cutting),
+        .rd_en(nvm_rd_en), .rd_addr(nvm_rd_addr), .rd_data(nvm_rd_data), .rd_valid(nvm_rd_valid),
+        .wr_en(nvm_wr_en), .wr_addr(nvm_wr_addr), .wr_data(nvm_wr_data), .wr_done(nvm_wr_done)
+    );
+
     // ---------------- Sentinel core ----------------
     peruri_sentinel_core #(
-        .H(H), .N(N), .DEMO_UNLOCK(DEMO_UNLOCK), .DPA_ENABLE(1), .DEMO_KEY(DEMO_KEY)
+        .H(H), .N(N), .M(M), .CW(CW), .DEMO_UNLOCK(DEMO_UNLOCK), .DPA_ENABLE(1),
+        .DEMO_KEY(DEMO_KEY)
     ) u_core (
-        .clk(clk), .rst_n(rst_n), .por_n(por_n), .sentinel_en(sentinel_en),
-        .op_req(op_req), .pt(DEMO_PT),
+        .clk(clk), .rst_n(rst_n), .por_n(core_por_n), .op_req(op_req), .pt(DEMO_PT),
+        .alarm_in(harness_alarm), .power_warn(warn_active),
+        .sentinel_en(sentinel_en),
         .fault_en(cur_fault), .fault_round(f_round), .fault_byte(f_byte), .fault_mask(f_mask),
-        .alarm_in(harness_alarm), .debug_unlock(debug_unlock),
+        .debug_unlock(debug_unlock), .round_idx(round_idx),
+        .nvm_rd_en(nvm_rd_en), .nvm_rd_addr(nvm_rd_addr), .nvm_rd_data(nvm_rd_data),
+        .nvm_rd_valid(nvm_rd_valid), .nvm_wr_en(nvm_wr_en), .nvm_wr_addr(nvm_wr_addr),
+        .nvm_wr_data(nvm_wr_data), .nvm_wr_done(nvm_wr_done),
         .ct_out(ct_out), .ct_valid(ct_valid), .gate_blocked(gate_blocked),
-        .tamper_counter(tamper_counter), .lockdown(lockdown), .busy(core_busy),
-        .round_idx(round_idx), .key_is_zero(key_is_zero)
+        .tamper_counter(alarm_count), .tear_count(tear_count),
+        .lockdown(lockdown), .busy(core_busy), .key_is_zero(key_is_zero)
     );
 
     // ---------------- LED status ----------------
@@ -146,13 +220,11 @@ module de10_nano_top #(
         if (!por_n) hb <= 0;
         else        hb <= hb + 1'b1;
 
-    assign LED[2:0] = (tamper_counter > 4'd7) ? 3'd7 : tamper_counter[2:0];
+    wire [CW-1:0] cnt_show = tear_view ? tear_count : alarm_count;
+    assign LED[2:0] = (cnt_show > 4'd7) ? 3'd7 : cnt_show[2:0];
     assign LED[3]   = hb[HB_BIT];
     assign LED[4]   = ok_latched & ~bad_led & ~lockdown;
     assign LED[5]   = blk_led;
     assign LED[6]   = alm_led;
     assign LED[7]   = lockdown & key_is_zero;
-
-    // SW2 unused in Tier 1 (reserved).
-    wire unused_ok = &{1'b0, sw_s[2]};
 endmodule

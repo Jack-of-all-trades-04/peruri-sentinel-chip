@@ -1,0 +1,41 @@
+# SymbiYosys job: security properties of the Sentinel controller.
+#   prove           unbounded proof (abc pdr) of S1-S10 in sec_ctrl_formal.v
+#   reach_release   bounded search; asserts "never releases" and MUST fail
+#   reach_lockdown  bounded search; asserts "never locks down" and MUST fail
+# The reach tasks show the proof is not vacuous (both states are reachable).
+[tasks]
+prove
+reach_release
+reach_lockdown
+
+[options]
+aigsmt none
+prove: mode prove
+reach_release: mode bmc
+reach_release: depth 24
+reach_release: expect fail
+reach_lockdown: mode bmc
+reach_lockdown: depth 24
+reach_lockdown: expect fail
+
+[engines]
+prove: abc pdr
+reach_release: abc bmc3
+reach_lockdown: abc bmc3
+
+[script]
+read_verilog -sv graduated_tamper_fsm.v tripwire_zeroize.v master_key_vault.v
+# the gate is read with FORMAL defined: it carries its own invariant asserts
+read_verilog -formal -sv output_release_gate.v
+prove: read_verilog -formal sec_ctrl_formal.v
+reach_release: read_verilog -formal -DREACH_RELEASE sec_ctrl_formal.v
+reach_lockdown: read_verilog -formal -DREACH_LOCKDOWN sec_ctrl_formal.v
+prep -top sec_ctrl_formal
+async2sync
+
+[files]
+../../rtl/output_release_gate.v
+../../rtl/graduated_tamper_fsm.v
+../../rtl/tripwire_zeroize.v
+../../rtl/master_key_vault.v
+sec_ctrl_formal.v
