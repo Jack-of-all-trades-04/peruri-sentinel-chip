@@ -129,10 +129,12 @@ Daripada menerapkan arsitektur 2D CNN konvensional yang membutuhkan puluhan blok
 ### Formulasi Matematis: LIF Leaky Integrator Tanpa Multiplier
 Secara matematis, satu neuron LIF dengan input biner beroperasi sebagai leaky integrator (IIR filter orde-satu dengan ambang batas diskrit). Potensial membran setiap neuron $i$ dihitung pada setiap siklus clock:
 
-$$V_i[t] = \left(V_i[t-1] - (V_i[t-1] \gg \text{LEAK\_SHIFT})\right) + \sum_{j=1}^{12} W_{ij} \cdot S_j[t]$$
+```math
+V_i[t] = \left(V_i[t-1] - (V_i[t-1] \gg \mathrm{LEAK\_SHIFT})\right) + \sum_{j=1}^{12} W_{ij} \cdot S_j[t]
+```
 
 Keterangan variabel:
-* $S_j[t] \in \{0, 1\}$ merepresentasikan keberadaan spike anomali dari kanal telemetri $j$ (8 kanal RO rate-of-change + 4 kanal TDL glitch alert).
+* $S_j[t] \in \lbrace 0, 1 \rbrace$ merepresentasikan keberadaan spike anomali dari kanal telemetri $j$ (8 kanal RO rate-of-change + 4 kanal TDL glitch alert).
 * $W_{ij}$ adalah bobot integer bertanda 8-bit.
 * Perkalian disederhanakan sepenuhnya menjadi operasi bitwise shift-and-add (multiplier-free datapath), sehingga tidak memerlukan blok DSP hard multiplier (0 DSP).
 
@@ -286,7 +288,11 @@ Berdasarkan sintesis sel standar pra-layout pada target produksi Tier 1 (`peruri
 * **Luas Akselerator Kriptografi Polos (Bare AES-128):** 70.358,7 µm² (0,0704 mm²) (estimasi, pra-layout).
 * **Luas Selubung Keamanan Sentinel (`output_release_gate` + `tamper_persist_fsm` + `master_key_vault` + `dpa_hiding_lfsr` + `tripwire_zeroize` + glue):** 30.644,4 µm² (0,0306 mm²) (estimasi, pra-layout).
 * **Rasio Overhead Silikon terhadap AES Polos:**
-  $$\text{Overhead Area} = \frac{30.644,4 \text{ µm}²}{70.358,7 \text{ µm}²} \times 100\% = \mathbf{+43,55\%} \quad (\text{estimasi, pra-layout})$$
+
+  ```math
+  \text{Overhead Area} = \frac{30.644{,}4\ \mu\text{m}^2}{70.358{,}7\ \mu\text{m}^2} \times 100\% = \mathbf{+43{,}55\%} \quad (\text{estimasi, pra-layout})
+  ```
+
   Overhead pengamanan selubung Sentinel terhadap akselerator AES polos adalah 43,55% (estimasi, pra-layout).
 
 ### Hasil Implementasi Pasca-Layout ASIC SkyWater 130nm (LibreLane / OpenROAD)
