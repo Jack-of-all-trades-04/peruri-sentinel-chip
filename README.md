@@ -6,21 +6,23 @@ The design layers three defences. A tapped delay line (TDL) glitch canary on the
 
 ## Gambar
 
-![Gambar 1. Arsitektur sistem](diagrams/diagram_1_arsitektur_sistem.png)
+![Gambar 1. Arsitektur target lengkap](diagrams/diagram_1_arsitektur_sistem.png)
 
-*Gambar 1. Arsitektur sistem: HPS (Linux) terhubung ke fabric FPGA melalui Lightweight AXI-32. Blok bergaris putus hanya ada pada build demo.*
+*Gambar 1. Arsitektur target lengkap: HPS (Linux) terhubung ke fabric FPGA melalui Lightweight AXI-32. Bagian HPS, AXI, dan dashboard (Tier 3) belum diimplementasikan. Yang sudah diimplementasikan dan diuji di board adalah Tier 1 dan Tier 2 yang dikendalikan lewat SW, KEY, dan LED.*
 
-![Gambar 2. Datapath dan domain clock](diagrams/diagram_2_datapath_clock_domain.png)
+![Gambar 2. Diagram blok RTL freeze](diagrams/diagram_blok_rtl_freeze.png)
 
-*Gambar 2. Datapath dan domain clock. Alert TDL menuju output release gate langsung di CLK_sys tanpa CDC (oranye). Alarm lambat dan sinyal lintas domain melalui sync_2ff (biru). Zeroize asinkron ke key vault (merah).*
+*Gambar 2. Diagram blok RTL freeze 19 Okt 2026 (Tier 2): CLK_sys 80 MHz (domain diserang) dan CLK_sentinel 50 MHz (domain pengawas). Alert TDL menuju output release gate langsung tanpa CDC. `tamper_persist_fsm` memakai NVM dua salinan ber-CRC. `clock_monitor` dan `heartbeat_watch` mengawasi clock dan keaktifan domain. Zeroize asinkron ke key vault.*
 
-![Gambar 3. Diagram waktu output release gate](diagrams/diagram_4_timing_output_release_gate.png)
+![Gambar 3. Glitch clock ditangkap TDL](diagrams/waveforms/T2_09_glitch_detail_siklus_akurat.png)
 
-*Gambar 3. Diagram waktu output release gate (ilustrasi). A: operasi bersih; ciphertext dirilis setelah HOLD H = 4 siklus (estimasi). B: glitch pada ronde terakhir terdeteksi TDL dalam 2 siklus (target), gate memblokir rilis, dan tamper_counter naik satu.*
+*Gambar 3. Glitch clock pada CLK_sys 80 MHz ditangkap TDL dalam 2 siklus (25 ns), alert ke alarm gate 0 siklus, latch gate 1 siklus, ciphertext ditahan (ct_valid = 0, ct_out = 0) (terukur, simulasi).*
 
-![Gambar 4. FSM respon bertingkat](diagrams/diagram_3_fsm_respon_bertingkat.png)
+![Gambar 4. Seluruh skenario demo Tier 1](diagrams/waveforms/T1_00_ikhtisar_seluruh_skenario.png)
 
-*Gambar 4. FSM respon bertingkat. Atas: sekuensi per operasi pada output_release_gate (CLK_sys). Bawah: tingkat tamper persisten pada tamper_persist_fsm (CLK_sentinel). Penghitung naik per tepi naik alarm, bukan per masuk SUPPRESS.*
+*Gambar 4. Seluruh skenario demo Tier 1 dari simulasi tingkat board: ciphertext salah hanya keluar saat Sentinel OFF; counter alarm naik per serangan; serangan ke-4 (N = 4, demo) menghapus kunci dan mengunci chip; reset pengguna tidak membuka lockdown; skenario cabut kartu, power cut, dan power_warn (terukur, simulasi).*
+
+Keterangan gambar lain ada di [diagrams/README.md](diagrams/README.md).
 
 ---
 
@@ -69,7 +71,7 @@ Peruri-Sentinel integrates an all-digital, distributed sensor mesh across the si
 │ Canary Sensor    │                                │ Mesh (8 Nodes)   │
 ├──────────────────┤                                ├──────────────────┤
 │ Samples CLK_sys  │                                │ Gate Window      │
-│ 1-2 Cycles Target│                                │ 2-4 µs (Estimasi)│
+│ 2 Cycles(terukur)│                                │ 2-4 µs (Estimasi)│
 └────────┬─────────┘                                └────────┬─────────┘
          │                                                   │
          └─────────────────────────┬─────────────────────────┘
@@ -87,7 +89,7 @@ Peruri-Sentinel integrates an all-digital, distributed sensor mesh across the si
 
 ### Distributed Ring Oscillator (RO) Mesh (Slow Path)
 * **Mechanism:** Eight small Ring Oscillators (odd-numbered inverter loops) placed across the floorplan near key registers and cipher datapaths. Synthesized with `(* syn_keep = 1 *)` / `(* keep, dont_touch *)`.
-* **Physics & Window Calculation:** An oscillator's frequency ($f_{RO} \approx \frac{1}{2 \cdot N \cdot t_{pd}(V_{dd}, T)}$) shifts with temperature and substrate voltage. Cycle counters evaluate frequencies over a parameterizable gate window (`RO_WINDOW` set to 256-512 cycles, estimasi 2,13 µs to 4,27 µs at 120 MHz). Relative frequency resolution is approximately $1/(f_{RO} \times T_{window})$: for $f_{RO} \approx 250$ MHz and $T_{window} \approx 2,13$ µs the counter accumulates about 533 counts, giving about 0,19% (estimasi). Latency is in microseconds (**estimasi 2 to 4 µs**), serving as a slow-drift thermal and supply monitor.
+* **Physics & Window Calculation:** An oscillator's frequency ($f_{RO} \approx \frac{1}{2 \cdot N \cdot t_{pd}(V_{dd}, T)}$) shifts with temperature and substrate voltage. Cycle counters evaluate frequencies over a parameterizable gate window (`RO_WINDOW` set to 256-512 cycles, estimasi 2,13 µs to 4,27 µs at the 120 MHz ASIC target). Relative frequency resolution is approximately $1/(f_{RO} \times T_{window})$: for $f_{RO} \approx 250$ MHz and $T_{window} \approx 2,13$ µs the counter accumulates about 533 counts, giving about 0,19% (estimasi). Latency is in microseconds (**estimasi 2 to 4 µs**), serving as a slow-drift thermal and supply monitor.
 
 ### Clock Tampering & Liveness Monitoring (Tier 2: Clock Monitor & Heartbeat Watchdog)
 To guard against clock manipulation, clock freezing, and fail-silent attacks:
@@ -132,7 +134,7 @@ Daripada menerapkan arsitektur 2D CNN konvensional yang membutuhkan puluhan blok
                          │
         ┌────────────────┴────────────────┐
         ▼                                 ▼
-[ Output Release Gate Abort ]     [ Graduated Tamper Counter ]
+[ Output Release Gate Abort ]     [ tamper_persist_fsm (NVM) ]
 ```
 
 ### Formulasi Matematis: LIF Leaky Integrator Tanpa Multiplier
@@ -152,7 +154,7 @@ Jika $V_i[t] \ge V_{threshold}$:
 
 ### Latensi Reaksi Sensor Berdasarkan Jalur
 * **TDL Canary (Fast Path):** Latensi dari glitch ke `tdl_alert` 2 siklus `CLK_sys` = 25 ns pada 80 MHz (terukur, simulasi); dari alert ke alarm gate 0 siklus (tanpa CDC) dan latch gate 1 siklus (terukur, simulasi). Jalur ini mendeteksi glitch clock dan transient voltage droop seketika sebelum setup time register terlanggar.
-* **RO Mesh Counters (Slow Path):** Frekuensi dievaluasi melalui jendela pencacah `RO_WINDOW` (256-512 siklus clock, estimasi 2,13 µs sampai 4,27 µs pada 120 MHz). Latensi berada pada skala mikrodetik (estimasi 2 sampai 4 µs) untuk mendeteksi drift termal dan manipulasi substrat lokal. Pada integrasi Tier 2, propagasi anomali RO hingga menghasilkan `alarm_sys` membutuhkan sekitar 10,3 µs (terukur, simulasi).
+* **RO Mesh Counters (Slow Path):** Frekuensi dievaluasi melalui jendela pencacah `RO_WINDOW` (256-512 siklus clock, estimasi 2,13 µs sampai 4,27 µs bila dihitung pada target 120 MHz ASIC). Latensi berada pada skala mikrodetik (estimasi 2 sampai 4 µs) untuk mendeteksi drift termal dan manipulasi substrat lokal. Pada integrasi Tier 2, propagasi anomali RO hingga menghasilkan `alarm_sys` membutuhkan sekitar 10,3 µs (terukur, simulasi).
 
 ### Kalibrasi Bobot Offline dan Rencana Uji Ablasi
 * **Sumber Bobot:** Bobot $W_{ij}$ tidak dilatih secara online di dalam silikon, melainkan dituning secara offline menggunakan rekaman jejak telemetri sensor RO/TDL pada board DE10-Nano di bawah variasi thermal sweep (25 °C hingga 60 °C) dan transient voltage droop.
@@ -268,7 +270,7 @@ Desain Peruri-Sentinel menyeimbangkan densitas logika pada FPGA Cyclone V dan ke
 
 | Elemen | Tier 1 (Demo On-Board + NVM Model) | Tier 2 (TDL Canary + RO Mesh + SNN LIF + Dual Domain) | Tersedia |
 | :--- | :--- | :--- | :--- |
-| ALM | **1.745 (4%) (terukur, Fitter)** | **2.919 (7%) (terukur, Fitter)** | 41.910 |
+| ALM | **1.745 (4%) (terukur, Fitter)** | **2.918 (7%) (terukur, Fitter)** | 41.910 |
 | Register | **1.441 (terukur, Fitter)** | **3.077 (terukur, Fitter)** | 83.820 |
 | Blok DSP | **0 (0%)** | **0 (0%)** | 112 |
 | Blok M10K | **0 (0%)** | **0 (0%)** | 553 |
@@ -347,10 +349,51 @@ Alur otomatis LibreLane dan OpenROAD telah dieksekusi hingga tahapan *detailed r
 
 ---
 
+## Galeri waveform
+
+Waveform di bawah dibuat dari testbench self-checking repositori (`tb_de10_nano_top`, `tb_de10_nano_top_t2`, `tb_core_t2_clockmon`) pada RTL freeze; setiap testbench mencetak PASS pada run yang sama. TDL dan ring oscillator di Tier 2 memakai model simulasi, sehingga kedalaman tap dan frekuensi RO pada gambar bukan nilai silikon. Semua gambar berlabel (terukur, simulasi). Cara membuat ulang ada di `verif/wave/`.
+
+![Operasi bersih Tier 1](diagrams/waveforms/T1_01_operasi_bersih.png)
+
+| Gambar | Yang dibuktikan |
+| :--- | :--- |
+| [T1_00_ikhtisar_seluruh_skenario](diagrams/waveforms/T1_00_ikhtisar_seluruh_skenario.png) | Seluruh urutan demo Tier 1: ciphertext salah hanya keluar saat Sentinel OFF; counter 1 sampai 4; lockdown dan kunci nol; KEY0 tidak membuka lockdown; skenario daya |
+| [T1_01_operasi_bersih](diagrams/waveforms/T1_01_operasi_bersih.png) (gambar di atas) | op_req, MARK NVM, izin FSM, AES 11 siklus, tahan H = 4, COMMIT, ct_valid; total 880 ns (44 siklus); ct_out nol sampai rilis |
+| [T1_02_sentinel_off_ciphertext_salah_bocor](diagrams/waveforms/T1_02_sentinel_off_ciphertext_salah_bocor.png) | Pembanding: tanpa Sentinel, fault ronde 9 menghasilkan ciphertext salah yang keluar |
+| [T1_03_sentinel_on_serangan_diblokir](diagrams/waveforms/T1_03_sentinel_on_serangan_diblokir.png) | Serangan sama dengan Sentinel ON: alarm, latch gate, COMMIT tidak bersih, ct_valid tetap 0, counter 0 ke 1 ditulis ke NVM |
+| [T1_04_serangan_ke4_lockdown_zeroize](diagrams/waveforms/T1_04_serangan_ke4_lockdown_zeroize.png) | Serangan ke-4: counter 4, zeroize_req, clear asinkron, key_is_zero, lockdown |
+| [T1_06_kartu_dicabut_counter_bertahan](diagrams/waveforms/T1_06_kartu_dicabut_counter_bertahan.png) | Daya core diputus: register kembali 0, rekaman NVM dibaca saat boot, counter kembali 2 |
+| [T1_07_power_cut_di_tengah_operasi](diagrams/waveforms/T1_07_power_cut_di_tengah_operasi.png) | Daya diputus setelah AES sebelum COMMIT: tidak ada ciphertext, tear_count bertambah 1 |
+| [T2_00_ikhtisar_seluruh_skenario](diagrams/waveforms/T2_00_ikhtisar_seluruh_skenario.png) | Seluruh urutan uji Tier 2 (CLK_sys 80 MHz, CLK_sentinel 50 MHz) |
+| [T2_02_glitch_clock_ditangkap_tdl](diagrams/waveforms/T2_02_glitch_clock_ditangkap_tdl.png) | Glitch di ronde akhir AES, tdl_alert, alarm ke gate tanpa CDC, latch, tidak ada ciphertext; counter naik di CLK_sentinel |
+| [T2_03_jalur_lambat_lif_lockdown](diagrams/waveforms/T2_03_jalur_lambat_lif_lockdown.png) | Satu RO diperlambat (stimulus testbench), LIF beralarm, kejadian ke-4, kunci nol, lockdown |
+| [T2_07_clk_sys_dihentikan_di_tengah_operasi](diagrams/waveforms/T2_07_clk_sys_dihentikan_di_tengah_operasi.png) | CLK_sys dihentikan saat AES berjalan: clk_fault 1,18 µs kemudian, gate memblokir saat clock kembali |
+| [T2_09_glitch_detail_siklus_akurat](diagrams/waveforms/T2_09_glitch_detail_siklus_akurat.png) | Zoom glitch: glitch ke tdl_alert 2 siklus (25 ns), alert ke alarm 0 siklus, latch 1 siklus |
+
+## Bukti dan reproduksi
+
+Perintah dijalankan dari root repositori ini.
+
+| Yang diperiksa | Perintah | Hasil |
+| :--- | :--- | :--- |
+| Simulasi Tier 1 | `./sim/run_sim.sh` | 16/16 PASS (terukur, simulasi) |
+| Simulasi Tier 2 (build demo dan produksi) | `./sim/tier2/run_sim_t2.sh` | 9/9 PASS (terukur, simulasi) |
+| Sintesis bersih dan cek build produksi | `./syn/yosys_check.sh` dan `./syn/yosys_check_t2.sh` | Tanpa latch, loop kombinasional, dan multiplier; build produksi tanpa port demo, vault 128 FF (terukur, sintesis). T1 2.998 ALUT / 1.263 FF, T2 6.413 ALUT / 2.811 FF (estimasi, yosys) |
+| Formal | `./verif/formal/run_formal.sh` | 8/8 PASS (bukti tak terbatas, BMC dan reach terbatas) (terukur, formal) |
+| Coverage | `./verif/coverage/run_coverage.sh` | Line 98,1%, branch 96,0% (terukur, simulasi) |
+| Fault injection dan co-simulation netlist sky130 | `./verif/gate/run_gate.sh` dan `./verif/gate/run_cosim.sh` | 4.884 fault, 87,0% terdeteksi, 0 fault berbahaya lolos; 1.000.000 siklus RTL sama dengan netlist (terukur, simulasi gate-level) |
+| Latensi | `./verif/metrics/run_metrics.sh` | Tier 1 860 sampai 920 ns @ 50 MHz, Tier 2 925 sampai 975 ns @ 80 MHz (terukur, simulasi) |
+| ASIC | `asic/run_flow.sh` (LibreLane 3.0.14) | Die 0,3456 mm², 0 pelanggaran setup/hold di 9 corner, DRC 0, LVS 0, masih ada pelanggaran max slew/cap (estimasi, pasca-layout) |
+| FPGA | proyek `quartus/` dan `quartus/tier2/` (Quartus Prime Lite 25.1) | T1 1.745 ALM, T2 2.918 ALM, 0 DSP (terukur, Fitter) |
+
+Alat EDA berjalan di container `ghcr.io/librelane/librelane:3.0.14` (skrip otomatis memakainya bila alat tidak ada di PATH). CI (GitHub Actions, `.github/workflows/sim.yml`) menjalankan seluruh testbench Tier 1 dan Tier 2 pada setiap push.
+
 ## Struktur repositori
 
 - `asic/`: alur otomasi hardening ASIC SkyWater 130nm via LibreLane dan OpenROAD (`run_flow.sh`, `config.yaml`, laporan metrik pasca-layout).
-- `diagrams/`: gambar PNG yang ditampilkan di README ini.
+- `diagrams/`: gambar PNG yang ditampilkan di README ini; `diagrams/waveforms/`: waveform terukur dari simulasi RTL freeze.
+- `verif/wave/`: skrip pembuat waveform (`wave_render.py`, `panels_tier1.py`, `panels_tier2.py`, `dump_cm.v`).
+- `.github/workflows/`: CI simulasi (`sim.yml`).
 - `rtl/`: sumber Verilog Tier 1; `rtl/tier2/`: sensor TDL, RO mesh, P2SE, LIF, clock monitor, heartbeat watch, dan top dua domain clock.
 - `sim/`: testbench self-checking Tier 1 (`run_sim.sh`), `sim/tier2/`: testbench Tier 2 (`run_sim_t2.sh`). Daftar tes ada di `sim/TESTS.md`.
 - `syn/`: cek sintesis Yosys (tanpa latch, tanpa loop, tanpa multiplier).
@@ -361,6 +404,8 @@ Alur otomatis LibreLane dan OpenROAD telah dieksekusi hingga tahapan *detailed r
 ## Status
 
 RTL telah dibekukan (RTL freeze) per 19 Oktober 2026. Tier 1 dan Tier 2 lulus seluruh gerbang simulasi (16/16 Tier 1 PASS, 9/9 Tier 2 PASS (terukur, simulasi)), bukti formal SymbiYosys (8/8 PASS (terukur, formal SymbiYosys)), dan penutupan timing Quartus Fitter (+0,164 ns Tier 1, +0,035 ns Tier 2 (terukur, Fitter)). Alur ASIC LibreLane pada SkyWater 130nm telah mencapai penutupan timing setup dan hold di 9 corner PVT (`clk20ns_pnr_corners2`, 50 MHz) (estimasi, pasca-layout), dengan luas die 345.562 µm² (estimasi, pasca-layout) (<0,35 mm² (target)) dan DRC/LVS nol (estimasi, pasca-layout), dengan catatan pelanggaran elektrikal slew dan cap masih tersisa pada pustaka sel standar ini.
+
+Hasil uji board DE10-Nano (19 Okt 2026): bitstream Tier 1 lulus 13 langkah uji board ditambah uji ulang lockdown; bitstream Tier 2 lulus 7/7 langkah inti ditambah 5/5 fitur tambahan; glitch clock fisik 8,0 ns ditangkap TDL 3 dari 3 percobaan; 0 alarm palsu dalam 2 menit uji diam (terukur, board). Klon baru repositori ini dapat menjalankan skrip simulasi, sintesis, dan formal dengan hasil seperti pada bagian "Bukti dan reproduksi".
 
 **Batasan dan Celah yang Diketahui (Known Gaps):**
 1. **Sensor fail-open sebelum kalibrasi TDL:** Sebelum logika kalibrasi adaptif TDL selesai dijalankan (*armed*), sensor TDL berada dalam status belum aktif sehingga belum memicu alarm secara mandiri.
