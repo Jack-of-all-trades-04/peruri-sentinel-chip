@@ -6,21 +6,17 @@ The design layers three defences. A tapped delay line (TDL) glitch canary on the
 
 ## Gambar
 
-![Gambar 1. Arsitektur target lengkap](diagrams/diagram_1_arsitektur_sistem.png)
+![Gambar 1. Diagram blok RTL freeze](diagrams/diagram_blok_rtl_freeze.png)
 
-*Gambar 1. Arsitektur target lengkap: HPS (Linux) terhubung ke fabric FPGA melalui Lightweight AXI-32. Bagian HPS, AXI, dan dashboard (Tier 3) belum diimplementasikan. Yang sudah diimplementasikan dan diuji di board adalah Tier 1 dan Tier 2 yang dikendalikan lewat SW, KEY, dan LED.*
+*Gambar 1. Diagram blok RTL freeze 19 Okt 2026 (Tier 2): CLK_sys 80 MHz (domain diserang) dan CLK_sentinel 50 MHz (domain pengawas). Alert TDL menuju output release gate langsung tanpa CDC. `tamper_persist_fsm` memakai NVM dua salinan ber-CRC. `clock_monitor` dan `heartbeat_watch` mengawasi clock dan keaktifan domain. Zeroize asinkron ke key vault.*
 
-![Gambar 2. Diagram blok RTL freeze](diagrams/diagram_blok_rtl_freeze.png)
+![Gambar 2. Glitch clock ditangkap TDL](diagrams/waveforms/T2_09_glitch_detail_siklus_akurat.png)
 
-*Gambar 2. Diagram blok RTL freeze 19 Okt 2026 (Tier 2): CLK_sys 80 MHz (domain diserang) dan CLK_sentinel 50 MHz (domain pengawas). Alert TDL menuju output release gate langsung tanpa CDC. `tamper_persist_fsm` memakai NVM dua salinan ber-CRC. `clock_monitor` dan `heartbeat_watch` mengawasi clock dan keaktifan domain. Zeroize asinkron ke key vault.*
+*Gambar 2. Glitch clock pada CLK_sys 80 MHz ditangkap TDL dalam 2 siklus (25 ns), alert ke alarm gate 0 siklus, latch gate 1 siklus, ciphertext ditahan (ct_valid = 0, ct_out = 0) (terukur, simulasi).*
 
-![Gambar 3. Glitch clock ditangkap TDL](diagrams/waveforms/T2_09_glitch_detail_siklus_akurat.png)
+![Gambar 3. Seluruh skenario demo Tier 1](diagrams/waveforms/T1_00_ikhtisar_seluruh_skenario.png)
 
-*Gambar 3. Glitch clock pada CLK_sys 80 MHz ditangkap TDL dalam 2 siklus (25 ns), alert ke alarm gate 0 siklus, latch gate 1 siklus, ciphertext ditahan (ct_valid = 0, ct_out = 0) (terukur, simulasi).*
-
-![Gambar 4. Seluruh skenario demo Tier 1](diagrams/waveforms/T1_00_ikhtisar_seluruh_skenario.png)
-
-*Gambar 4. Seluruh skenario demo Tier 1 dari simulasi tingkat board: ciphertext salah hanya keluar saat Sentinel OFF; counter alarm naik per serangan; serangan ke-4 (N = 4, demo) menghapus kunci dan mengunci chip; reset pengguna tidak membuka lockdown; skenario cabut kartu, power cut, dan power_warn (terukur, simulasi).*
+*Gambar 3. Seluruh skenario demo Tier 1 dari simulasi tingkat board: ciphertext salah hanya keluar saat Sentinel OFF; counter alarm naik per serangan; serangan ke-4 (N = 4, demo) menghapus kunci dan mengunci chip; reset pengguna tidak membuka lockdown; skenario cabut kartu, power cut, dan power_warn (terukur, simulasi).*
 
 Keterangan gambar lain ada di [diagrams/README.md](diagrams/README.md).
 
@@ -77,9 +73,6 @@ Peruri-Sentinel integrates an all-digital, distributed sensor mesh across the si
          └─────────────────────────┬─────────────────────────┘
                                    ▼
                   [ 12-Channel Digitized Vector ]
-                                   │
-               (Optional Off-Chip Board Monitor: LTC2308
-                12-Bit ADC via Dedicated 2x5 Header)
 ```
 
 ### Tapped Delay Line (TDL) Canary Glitch Sensors (Fast Path)
@@ -95,10 +88,6 @@ Peruri-Sentinel integrates an all-digital, distributed sensor mesh across the si
 To guard against clock manipulation, clock freezing, and fail-silent attacks:
 * **Clock Monitor (`clock_monitor`):** Operates using an independent, always-running ring oscillator (`ro_cell`) as a local reference time base. Dedicated monitor instances observe `CLK_sys` and `CLK_sentinel` over counting windows (`MON_WINDOW`). Detects stopped clocks, gross underclocking (< 1/4x), and overclocking (> 2x). In simulation (terukur, simulasi), a stopped `CLK_sys` is detected within 840 ns, gross underclocking (< 1/4x) within 1.740 ns, and gross overclocking (> 2x) within 1.730 ns; a stopped `CLK_sentinel` is detected within 1.740 ns. Detected anomalies immediately raise sticky alarm flags and block the release gate.
 * **Heartbeat Watchdog (`heartbeat_watch`):** Provides a direct cross-domain liveness check between `CLK_sys` and `CLK_sentinel` independent of the oscillator time base. Each domain periodically toggles a heartbeat line; the companion domain synchronizes the edge and asserts a timeout fault if no transition occurs within the timeout window (`HB_TO`). In simulation (terukur, simulasi), a stopped `CLK_sentinel` is flagged by the heartbeat watchdog within 5.320 ns.
-
-### Optional Off-Chip Board Monitor (LTC2308 ADC)
-* **Classification:** The Terasic DE10-Nano features a Linear Technology LTC2308 (8-channel, 12-bit, 500 ksps) ADC accessed via a dedicated 2x5 header.
-* **Role:** Serves as a slow, off-chip board-level power monitor for HPS Linux telemetry. It is not part of the internal silicon sensor fabric and cannot detect nanosecond glitches due to its 500 ksps bandwidth limit.
 
 ---
 
@@ -239,31 +228,30 @@ Teknik konvensional enkripsi ganda memiliki kelemahan: menggandakan latensi ekse
 Desain Peruri-Sentinel menyeimbangkan densitas logika pada FPGA Cyclone V dan kelayakan fabrikasi silikon pada PDK SkyWater 130nm.
 
 ```
-+-----------------------------------------------------------------------------------------+
-|                                    DE10-Nano SoC Overview                               |
-|                                                                                         |
-|  +--------------------------------+           Lightweight HPS-to-FPGA AXI Bridge        |
-|  |       ARM Cortex-A9 HPS        | <================================================>  |
-|  |   (Linux Telemetry / API)      |                                                     |
-|  +--------------------------------+                                                     |
-|                                                                 FPGA Fabric (Cyclone V) |
-|  +-----------------------------------------------------------------------------------+  |
-|  |  +---------------------+   +----------------------+   +------------------------+  |  |
-|  |  | Cryptographic Core  |   | Hardware Tripwire &  |   | Peruri-Sentinel        |  |  |
-|  |  | (AES-128/256)       |   | Output Release Gate  |   | SNN Anomaly Core       |  |  |
-|  |  +----------▲----------+   +----------▲-----------+   +-----------▲------------+  |  |
-|  |             │                         │                           │               |  |
-|  |             └─────────────────────────┴───────────────────────────┘               |  |
-|  |                                       │                                           |  |
-|  |                         Isolated Secure Enclave Bus                               |  |
-|  |                                       │                                           |  |
-|  |         +─────────────────────────────┴─────────────────────────────+             |  |
-|  |         │      Distributed Sensor Mesh (RO Arrays + TDL Registers)  │             |  |
-|  |         +───────────────────────────────────────────────────────────+             |  |
-|  |                                                                                   |  |
-|  |  [Off-Chip Monitor Header] ──► LTC2308 ADC (SPI, 500 ksps, telemetry board level) |  |
-|  |  +-----------------------------------------------------------------------------------+  |
-+-----------------------------------------------------------------------------------------+
++---------------------------------------------------------------------------------+
+|                 DE10-Nano: implementasi di FPGA fabric Cyclone V                |
+|                                                                                 |
+|  Board I/O: SW[3:0], KEY[1:0], LED[7:0], FPGA_CLK1_50 (50 MHz)                  |
+|        |                                                                        |
+|        v                                                                        |
+|  +---------------------------------------------------------------------------+  |
+|  |  FPGA Fabric Cyclone V 5CSEBA6U23I7                                       |  |
+|  |                                                                           |  |
+|  |  Tier 1 (de10_nano_top): satu clock 50 MHz, alarm dari KEY1 (demo)        |  |
+|  |  Tier 2 (de10_nano_top_t2): PLL -> CLK_sys 80 MHz + CLK_sentinel 50 MHz   |  |
+|  |                                                                           |  |
+|  |  +--------------------+   +---------------------+   +------------------+  |  |
+|  |  | AES-128 + DPA      |-->| Output Release Gate |-->| ct_out (hanya    |  |  |
+|  |  | hiding + key vault |   | (dua salinan)       |   | jika bersih)     |  |  |
+|  |  +--------------------+   +----------^----------+   +------------------+  |  |
+|  |                                      |                                    |  |
+|  |  +--------------------+   +----------+----------+   +------------------+  |  |
+|  |  | TDL canary,        |-->| tamper_persist_fsm  |<->| NVM dua salinan  |  |  |
+|  |  | RO mesh + LIF,     |   | + tripwire zeroize  |   | ber-CRC (model)  |  |  |
+|  |  | clock monitor      |   +---------------------+   +------------------+  |  |
+|  |  +--------------------+                                                   |  |
+|  +---------------------------------------------------------------------------+  |
++---------------------------------------------------------------------------------+
 ```
 
 ### Resource DE10-Nano (Quartus Prime Lite 25.1, Cyclone V 5CSEBA6U23I7, Hasil RTL Freeze 19 Okt 2026)
